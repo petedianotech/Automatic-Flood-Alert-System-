@@ -7,6 +7,7 @@ import com.example.ui.theme.StatusGreenText
 import com.example.ui.theme.StatusRed
 import com.example.ui.theme.StatusYellow
 
+import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -71,6 +72,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -115,7 +128,7 @@ fun AdminDashboardScreen(
         item {
             CameraViewfinderCard(
                 adminState = adminState,
-                onCaptureClick = { viewModel.captureAndAnalyze() },
+                onCaptureClick = { bitmap -> viewModel.captureAndAnalyze(customBitmap = bitmap) },
                 onSimulateShiftClick = { viewModel.cycleSimulationLedState() }
             )
         }
@@ -287,12 +300,29 @@ fun SystemHealthHeaderCard(healthInfo: String) {
     }
 }
 
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun CameraViewfinderCard(
     adminState: AdminUiState,
-    onCaptureClick: () -> Unit,
+    onCaptureClick: (Bitmap?) -> Unit,
     onSimulateShiftClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
+    var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
+
+    DisposableEffect(adminState.isCameraOpen) {
+        onDispose {
+            try {
+                val cameraProvider = ProcessCameraProvider.getInstance(context).get()
+                cameraProvider.unbindAll()
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -363,22 +393,92 @@ fun CameraViewfinderCard(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                val processedBitmap = adminState.latestAnalysisResult?.processedBitmap
-                if (processedBitmap != null) {
-                    Image(
-                        bitmap = processedBitmap.asImageBitmap(),
-                        contentDescription = "OpenCV Processed Frame",
+                if (!cameraPermissionState.status.isGranted) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = "Permission Needed",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(40.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Camera Permission Required",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Text(
+                            text = "Enable camera access to run optical color detection and water height scans.",
+                            color = Color.White.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = { cameraPermissionState.launchPermissionRequest() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Grant Permission", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else if (adminState.isCameraOpen) {
+                    // Show actual live camera feed
+                    AndroidView(
+                        factory = { ctx ->
+                            PreviewView(ctx).apply {
+                                scaleType = PreviewView.ScaleType.FILL_CENTER
+                                previewViewRef = this
+                                
+                                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                                cameraProviderFuture.addListener({
+                                    try {
+                                        val cameraProvider = cameraProviderFuture.get()
+                                        val preview = Preview.Builder().build().apply {
+                                            setSurfaceProvider(surfaceProvider)
+                                        }
+                                        val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                                        cameraProvider.unbindAll()
+                                        cameraProvider.bindToLifecycle(
+                                            lifecycleOwner,
+                                            cameraSelector,
+                                            preview
+                                        )
+                                    } catch (exc: Exception) {
+                                        android.util.Log.e("CameraViewfinder", "Use case binding failed", exc)
+                                    }
+                                }, ContextCompat.getMainExecutor(ctx))
+                            }
+                        },
                         modifier = Modifier.matchParentSize()
                     )
                 } else {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    // Show last analyzed image frame with computer vision bounding boxes
+                    val processedBitmap = adminState.latestAnalysisResult?.processedBitmap
+                    if (processedBitmap != null) {
+                        Image(
+                            bitmap = processedBitmap.asImageBitmap(),
+                            contentDescription = "OpenCV Processed Frame",
+                            modifier = Modifier.matchParentSize()
+                        )
+                    } else {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
                 }
 
-                if (adminState.isAnalyzing || adminState.isCameraOpen) {
+                if (adminState.isAnalyzing) {
                     Box(
                         modifier = Modifier
                             .matchParentSize()
-                            .background(Color.Black.copy(alpha = 0.45f)),
+                            .background(Color.Black.copy(alpha = 0.65f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -413,7 +513,7 @@ fun CameraViewfinderCard(
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = adminState.cameraStatusText,
+                        text = if (cameraPermissionState.status.isGranted) adminState.cameraStatusText else "Awaiting Camera Permission...",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium
                     )
@@ -426,7 +526,10 @@ fun CameraViewfinderCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 ElevatedButton(
-                    onClick = onCaptureClick,
+                    onClick = {
+                        val bitmap = previewViewRef?.bitmap
+                        onCaptureClick(bitmap)
+                    },
                     modifier = Modifier
                         .weight(1.2f)
                         .testTag("capture_analyze_button"),
