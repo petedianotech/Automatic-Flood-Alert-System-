@@ -18,7 +18,7 @@ private val DarkColorScheme = darkColorScheme(
     onPrimaryContainer = Color.White,
     secondary = StatusGreen,
     onSecondary = Color.White,
-    tertiary = StatusYellow,
+    tertiary = StatusBlue,
     background = SlateDarkBg,
     onBackground = HighContrastTextLight,
     surface = SlateCardBg,
@@ -34,7 +34,7 @@ private val LightColorScheme = lightColorScheme(
     onPrimaryContainer = Color(0xFF0369A1),
     secondary = StatusGreen,
     onSecondary = Color.White,
-    tertiary = StatusYellow,
+    tertiary = StatusBlue,
     background = Color(0xFFF8FAFC),
     onBackground = HighContrastTextDark,
     surface = Color.White,
@@ -44,7 +44,7 @@ private val LightColorScheme = lightColorScheme(
 )
 
 @Composable
-fun WorkbeeTheme(
+fun FloodAlertTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit

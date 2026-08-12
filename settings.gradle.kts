@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Flood Alert System"
+rootProject.name = "Automatic Flood Alert System"
 
 include(":app")

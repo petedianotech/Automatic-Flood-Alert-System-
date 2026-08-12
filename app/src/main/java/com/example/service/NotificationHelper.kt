@@ -48,7 +48,6 @@ object NotificationHelper {
 
     fun triggerEmergencyFloodAlert(
         context: Context,
-        waterLevelMeters: Double,
         location: String = "River Valley Station #01",
         isCritical: Boolean = true
     ) {
@@ -68,11 +67,11 @@ object NotificationHelper {
         val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
-        val title = if (isCritical) "🚨 EVACUATE NOW - CRITICAL FLOOD ALERT!" else "⚠️ WARNING - RISING WATER LEVEL"
+        val title = if (isCritical) "🚨 EVACUATE NOW - CRITICAL FLOOD ALERT!" else "⚠️ BLUE WARNING - RISING WATER ALERT"
         val subtitle = if (isCritical) {
-            "RED LED DETECTED! Water level reached ${waterLevelMeters}m at $location. Seek high ground immediately!"
+            "RED LED DETECTED at $location! CRITICAL FLOOD DANGER - People MUST RUN to safety!"
         } else {
-            "YELLOW LED DETECTED! Water level is rising (${waterLevelMeters}m) at $location. Prepare emergency bags!"
+            "BLUE LED DETECTED at $location! WARNING: Prepare emergency bags and move supplies to high ground."
         }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -82,9 +81,9 @@ object NotificationHelper {
             .setStyle(
                 NotificationCompat.BigTextStyle()
                     .bigText(if (isCritical) {
-                        "🚨 RED LED DETECTED BY CAMERA!\nWater level reached ${waterLevelMeters}m at $location.\n\nCRITICAL FLOOD DANGER: Move to designated village evacuation shelters immediately!"
+                        "🚨 RED LED DETECTED BY CAMERA!\nLocation: $location.\n\nCRITICAL FLOOD DANGER: People MUST RUN! Evacuate immediately to designated village shelters!"
                     } else {
-                        "⚠️ YELLOW LED DETECTED BY CAMERA!\nWater level is rising (${waterLevelMeters}m) at $location.\n\nWARNING: Please prepare emergency kits and stay alert for directives."
+                        "⚠️ BLUE LED DETECTED BY CAMERA!\nLocation: $location.\n\nWARNING ALERT: Please prepare emergency disaster kits and stand by for further safety updates."
                     })
             )
             .setPriority(NotificationCompat.PRIORITY_MAX)

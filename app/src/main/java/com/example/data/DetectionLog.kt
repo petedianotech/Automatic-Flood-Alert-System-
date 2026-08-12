@@ -4,9 +4,9 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 
 enum class LedState {
-    GREEN,   // Safe water level
-    YELLOW,  // Warning / rising water level
-    RED,     // Critical / Evacuate level
+    GREEN,   // Normal / Everything okay
+    BLUE,    // Warning / Watch level - notifications triggered
+    RED,     // Danger / Critical level - EVACUATE NOW!
     UNKNOWN  // Sensor offline or obstructed
 }
 
@@ -25,4 +25,11 @@ data class DetectionLog(
     val latitude: Double = 0.0,
     val longitude: Double = 0.0,
     val locationName: String = "Station Alpha"
+)
+
+data class Quadruple<out A, out B, out C, out D>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D
 )

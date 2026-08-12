@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Path
 import com.example.data.LedState
 import kotlin.math.max
 
@@ -15,7 +14,6 @@ data class OpenCvAnalysisResult(
     val detectedBrightness: Float, // 0 to 1
     val confidence: Float,         // 0 to 1
     val colorHex: String,
-    val waterLevelEstimateMeters: Double,
     val matrixSummary: String,
     val processedBitmap: Bitmap
 )
@@ -31,7 +29,7 @@ object OpenCvColorDetector {
         val height = sourceBitmap.height
 
         var redCount = 0
-        var yellowCount = 0
+        var blueCount = 0
         var greenCount = 0
         var totalBrightPixels = 0
 
@@ -66,8 +64,8 @@ object OpenCvColorDetector {
 
                     if ((h in 0f..25f) || (h in 330f..360f)) {
                         redCount++
-                    } else if (h in 30f..75f) {
-                        yellowCount++
+                    } else if (h in 180f..250f) {
+                        blueCount++
                     } else if (h in 80f..165f) {
                         greenCount++
                     }
@@ -78,7 +76,6 @@ object OpenCvColorDetector {
         val state: LedState
         val confidence: Float
         val hex: String
-        val waterLevel: Double
         val avgHue: Float
         val avgSat: Float
         val avgVal: Float
@@ -91,16 +88,14 @@ object OpenCvColorDetector {
                     avgSat = 0.92f
                     avgVal = 0.88f
                     confidence = 0.98f
-                    hex = "#22C55E"
-                    waterLevel = 1.15
+                    hex = "#10B981"
                 }
-                LedState.YELLOW -> {
-                    avgHue = 52f
+                LedState.BLUE -> {
+                    avgHue = 215f
                     avgSat = 0.95f
                     avgVal = 0.90f
                     confidence = 0.96f
-                    hex = "#EAB308"
-                    waterLevel = 2.85
+                    hex = "#2563EB"
                 }
                 LedState.RED -> {
                     avgHue = 356f
@@ -108,7 +103,6 @@ object OpenCvColorDetector {
                     avgVal = 0.94f
                     confidence = 0.99f
                     hex = "#EF4444"
-                    waterLevel = 4.75
                 }
                 LedState.UNKNOWN -> {
                     avgHue = 0f
@@ -116,7 +110,6 @@ object OpenCvColorDetector {
                     avgVal = 0.1f
                     confidence = 0.40f
                     hex = "#64748B"
-                    waterLevel = 0.0
                 }
             }
         } else if (totalBrightPixels > 0) {
@@ -124,25 +117,21 @@ object OpenCvColorDetector {
             avgSat = sumSat / totalBrightPixels
             avgVal = sumVal / totalBrightPixels
 
-            val maxVal = maxOf(redCount, yellowCount, greenCount)
+            val maxVal = maxOf(redCount, blueCount, greenCount)
             confidence = (maxVal.toFloat() / totalBrightPixels.toFloat()).coerceIn(0.65f, 0.99f)
 
             if (maxVal == redCount && redCount > 0) {
                 state = LedState.RED
                 hex = "#EF4444"
-                waterLevel = 4.60 + (avgVal * 0.4)
-            } else if (maxVal == yellowCount && yellowCount > 0) {
-                state = LedState.YELLOW
-                hex = "#EAB308"
-                waterLevel = 2.50 + (avgVal * 0.5)
+            } else if (maxVal == blueCount && blueCount > 0) {
+                state = LedState.BLUE
+                hex = "#2563EB"
             } else if (maxVal == greenCount && greenCount > 0) {
                 state = LedState.GREEN
-                hex = "#22C55E"
-                waterLevel = 1.00 + (avgVal * 0.4)
+                hex = "#10B981"
             } else {
                 state = LedState.GREEN
-                hex = "#22C55E"
-                waterLevel = 1.20
+                hex = "#10B981"
             }
         } else {
             avgHue = 120f
@@ -150,8 +139,7 @@ object OpenCvColorDetector {
             avgVal = 0.80f
             confidence = 0.92f
             state = LedState.GREEN
-            hex = "#22C55E"
-            waterLevel = 1.25
+            hex = "#10B981"
         }
 
         // Generate processed bitmap with computer vision HUD overlays
@@ -166,14 +154,13 @@ object OpenCvColorDetector {
             detectedBrightness = avgVal,
             confidence = confidence,
             colorHex = hex,
-            waterLevelEstimateMeters = (waterLevel * 100).toInt() / 100.0,
             matrixSummary = matrixSummary,
             processedBitmap = processedBitmap
         )
     }
 
     /**
-     * Synthesizes a simulated Hydro Sensor Station camera frame bitmap with LED light output and water gauge.
+     * Synthesizes a simulated Hydro Sensor Station camera frame bitmap with LED light output.
      */
     fun createSimulatedFrame(state: LedState, width: Int = 800, height: Int = 600): Bitmap {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -185,18 +172,18 @@ object OpenCvColorDetector {
         }
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
-        // Draw River & Water Gauge
+        // Draw River Base
         val riverPaint = Paint().apply {
             color = when (state) {
-                LedState.GREEN -> Color.parseColor("#1E3A8A")
-                LedState.YELLOW -> Color.parseColor("#854D0E")
+                LedState.GREEN -> Color.parseColor("#065F46")
+                LedState.BLUE -> Color.parseColor("#1E40AF")
                 LedState.RED -> Color.parseColor("#991B1B")
                 LedState.UNKNOWN -> Color.parseColor("#334155")
             }
         }
         val waterY = when (state) {
             LedState.GREEN -> height * 0.70f
-            LedState.YELLOW -> height * 0.50f
+            LedState.BLUE -> height * 0.50f
             LedState.RED -> height * 0.30f
             LedState.UNKNOWN -> height * 0.80f
         }
@@ -220,16 +207,16 @@ object OpenCvColorDetector {
         val panelBottom = height * 0.55f
         canvas.drawRect(panelLeft, panelTop, panelRight, panelBottom, panelPaint)
 
-        // Draw 3 LEDs (RED, YELLOW, GREEN)
+        // Draw 3 LEDs (RED, BLUE, GREEN)
         val ledCenterX = width * 0.5f
         val ledRadius = 28f
 
         val redY = height * 0.23f
-        val yellowY = height * 0.35f
+        val blueY = height * 0.35f
         val greenY = height * 0.47f
 
         val activeRed = state == LedState.RED
-        val activeYellow = state == LedState.YELLOW
+        val activeBlue = state == LedState.BLUE
         val activeGreen = state == LedState.GREEN
 
         // Red LED
@@ -246,43 +233,43 @@ object OpenCvColorDetector {
             canvas.drawCircle(ledCenterX, redY, ledRadius * 2.2f, halo)
         }
 
-        // Yellow LED
-        val yellowPaint = Paint().apply {
-            color = if (activeYellow) Color.parseColor("#EAB308") else Color.parseColor("#422006")
+        // Blue LED (Warning)
+        val bluePaint = Paint().apply {
+            color = if (activeBlue) Color.parseColor("#2563EB") else Color.parseColor("#1E3A8A")
             isAntiAlias = true
         }
-        canvas.drawCircle(ledCenterX, yellowY, ledRadius, yellowPaint)
-        if (activeYellow) {
+        canvas.drawCircle(ledCenterX, blueY, ledRadius, bluePaint)
+        if (activeBlue) {
             val halo = Paint().apply {
-                color = Color.parseColor("#44EAB308")
+                color = Color.parseColor("#442563EB")
                 isAntiAlias = true
             }
-            canvas.drawCircle(ledCenterX, yellowY, ledRadius * 2.2f, halo)
+            canvas.drawCircle(ledCenterX, blueY, ledRadius * 2.2f, halo)
         }
 
         // Green LED
         val greenPaint = Paint().apply {
-            color = if (activeGreen) Color.parseColor("#22C55E") else Color.parseColor("#052E16")
+            color = if (activeGreen) Color.parseColor("#10B981") else Color.parseColor("#052E16")
             isAntiAlias = true
         }
         canvas.drawCircle(ledCenterX, greenY, ledRadius, greenPaint)
         if (activeGreen) {
             val halo = Paint().apply {
-                color = Color.parseColor("#4422C55E")
+                color = Color.parseColor("#4410B981")
                 isAntiAlias = true
             }
             canvas.drawCircle(ledCenterX, greenY, ledRadius * 2.2f, halo)
         }
 
-        // Draw Gauge Markings
+        // Draw Status Markings
         val textPaint = Paint().apply {
             color = Color.WHITE
             textSize = 28f
             isAntiAlias = true
         }
-        canvas.drawText("5.0m [RED DANGER]", 20f, height * 0.30f, textPaint)
-        canvas.drawText("3.0m [YELLOW WARN]", 20f, height * 0.50f, textPaint)
-        canvas.drawText("1.0m [GREEN SAFE]", 20f, height * 0.70f, textPaint)
+        canvas.drawText("[RED: DANGER - EVACUATE]", 20f, height * 0.25f, textPaint)
+        canvas.drawText("[BLUE: WARNING - WATCH]", 20f, height * 0.40f, textPaint)
+        canvas.drawText("[GREEN: NORMAL - OK]", 20f, height * 0.55f, textPaint)
 
         return bitmap
     }
@@ -294,8 +281,8 @@ object OpenCvColorDetector {
         val h = mutable.height.toFloat()
 
         val strokeColor = when (state) {
-            LedState.GREEN -> Color.parseColor("#22C55E")
-            LedState.YELLOW -> Color.parseColor("#EAB308")
+            LedState.GREEN -> Color.parseColor("#10B981")
+            LedState.BLUE -> Color.parseColor("#2563EB")
             LedState.RED -> Color.parseColor("#EF4444")
             LedState.UNKNOWN -> Color.GRAY
         }
@@ -344,3 +331,4 @@ object OpenCvColorDetector {
         return mutable
     }
 }
+

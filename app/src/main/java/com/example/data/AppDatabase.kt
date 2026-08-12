@@ -27,7 +27,7 @@ abstract class AppDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "workbee_hydrowatch.db"
+                    "automatic_flood_alert.db"
                 )
                 .fallbackToDestructiveMigration()
                 .addCallback(DatabaseCallback())

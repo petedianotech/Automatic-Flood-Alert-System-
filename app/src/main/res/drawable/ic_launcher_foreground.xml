@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/img_app_icon_1786477402290"
+        android:drawable="@drawable/flood_alert_icon_foreground_1786558634525"
         android:gravity="center" />
 </layer-list>

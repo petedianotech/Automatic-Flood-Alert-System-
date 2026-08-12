@@ -24,8 +24,8 @@ class FloodMessagingService : FirebaseMessagingService() {
         // Fire a highly visible, system-wide heads-up notification with sound/vibration
         NotificationHelper.triggerEmergencyFloodAlert(
             context = applicationContext,
-            waterLevelMeters = waterLevel,
-            location = location
+            location = location,
+            isCritical = true
         )
     }
 }

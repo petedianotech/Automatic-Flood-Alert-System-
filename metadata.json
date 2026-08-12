@@ -1,5 +1,5 @@
 {
-  "name": "Flood Alert System",
+  "name": "Automatic Flood Alert System",
   "description": "Community river status monitor with OpenCV color detection for LED water-level indicators and Villager emergency safety portal.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

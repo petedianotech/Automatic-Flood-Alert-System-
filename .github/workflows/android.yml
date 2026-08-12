@@ -69,6 +69,6 @@ jobs:
       - name: Upload Signed Installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: Workbee-Automatic-Flood-Alert-Signed-APK
+          name: Automatic-Flood-Alert-System-Signed-APK
           path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error

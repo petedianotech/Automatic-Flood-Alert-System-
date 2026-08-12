@@ -93,7 +93,7 @@ fun CreateAccountScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Workbee HydroWatch",
+                text = "Automatic Flood Alert System",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Black,
                 color = MaterialTheme.colorScheme.onBackground,

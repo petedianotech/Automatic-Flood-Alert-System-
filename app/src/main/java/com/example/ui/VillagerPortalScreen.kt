@@ -1,6 +1,5 @@
 package com.example.ui
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -16,17 +15,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.data.DetectionLog
 import com.example.data.EmergencyContact
 import com.example.data.EvacuationShelter
 import com.example.data.LedState
+import com.example.data.Quadruple
+import com.example.ui.theme.StatusBlue
+import com.example.ui.theme.StatusBlueBg
+import com.example.ui.theme.StatusGreen
+import com.example.ui.theme.StatusGreenBg
+import com.example.ui.theme.StatusRed
+import com.example.ui.theme.StatusRedBg
 
 @Composable
 fun VillagerPortalScreen(
@@ -69,8 +72,10 @@ fun VillagerPortalScreen(
             latestLog = latestLog
         )
 
-        // 3. Short Action Plan: What to do when you see floods
-        WhatToDoWhenFloodsCard()
+        // 3. Dynamic Safety Recommendations & Action Plan
+        SafetyRecommendationsActionCard(
+            ledState = currentLed
+        )
     }
 }
 
@@ -116,7 +121,7 @@ fun ProfileCard(
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = userName.ifBlank { "Dzenje Member" },
+                    text = userName.ifBlank { "Community Member" },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -128,7 +133,6 @@ fun ProfileCard(
                 )
             }
 
-            // High contrast elegant logout button
             IconButton(
                 onClick = onLogout,
                 modifier = Modifier
@@ -153,32 +157,31 @@ fun FloodStatusCard(
 ) {
     val (statusLabel, statusColor, statusBg, description) = when (ledState) {
         LedState.GREEN -> Quadruple(
-            "SAFE STATUS",
-            Color(0xFF2E7D32),
-            Color(0xFFE8F5E9),
-            "Water levels are completely normal. No threat detected."
+            "GREEN • NORMAL STATUS",
+            StatusGreen,
+            StatusGreenBg,
+            "Everything is okay. No flood threat detected by LED sensor."
         )
-        LedState.YELLOW -> Quadruple(
-            "WATCH STATUS",
-            Color(0xFFEF6C00),
-            Color(0xFFFFF3E0),
-            "Water levels are rising. Keep monitoring and stay alert."
+        LedState.BLUE -> Quadruple(
+            "BLUE • WARNING ALERT",
+            StatusBlue,
+            StatusBlueBg,
+            "Flood warning! Water level is rising. Stand by for community notifications."
         )
         LedState.RED -> Quadruple(
-            "DANGER STATUS",
-            Color(0xFFC62828),
-            Color(0xFFFFEBEE),
-            "Critical flood threat! Evacuate immediately to high ground."
+            "RED • CRITICAL DANGER",
+            StatusRed,
+            StatusRedBg,
+            "CRITICAL FLOOD THREAT! PEOPLE MUST RUN AND EVACUATE IMMEDIATELY!"
         )
         else -> Quadruple(
             "UNKNOWN",
             Color.Gray,
             Color(0xFFF5F5F5),
-            "Monitoring device telemetries are offline."
+            "Flood sensor monitoring station offline."
         )
     }
 
-    // Dynamic flashing effect for Danger status
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val alphaScale by infiniteTransition.animateFloat(
         initialValue = 0.9f,
@@ -213,7 +216,7 @@ fun FloodStatusCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "📡 Sensor Station Alert",
+                    text = "📡 Automatic Optical LED Alert",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = statusColor
@@ -222,7 +225,7 @@ fun FloodStatusCard(
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = statusColor,
-                    modifier = Modifier.scale(if (ledState == LedState.RED) alphaScale else 1.0f)
+                    modifier = Modifier.scale(if (ledState == LedState.RED || ledState == LedState.BLUE) alphaScale else 1.0f)
                 ) {
                     Text(
                         text = statusLabel,
@@ -245,7 +248,7 @@ fun FloodStatusCard(
                     modifier = Modifier
                         .size(48.dp)
                         .clip(CircleShape)
-                        .background(statusColor.copy(alpha = 0.1f)),
+                        .background(statusColor.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -258,7 +261,12 @@ fun FloodStatusCard(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Current Depth: ${latestLog?.waterLevelMeters ?: "0.0"} m",
+                        text = when (ledState) {
+                            LedState.GREEN -> "Status: Green (Safe)"
+                            LedState.BLUE -> "Status: Blue (Warning Alert)"
+                            LedState.RED -> "Status: Red (CRITICAL DANGER)"
+                            LedState.UNKNOWN -> "Status: Unknown"
+                        },
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.ExtraBold,
                         color = statusColor
@@ -266,7 +274,7 @@ fun FloodStatusCard(
                     Text(
                         text = description,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = statusColor.copy(alpha = 0.85f),
+                        color = statusColor.copy(alpha = 0.9f),
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -276,11 +284,52 @@ fun FloodStatusCard(
 }
 
 @Composable
-fun WhatToDoWhenFloodsCard() {
+fun SafetyRecommendationsActionCard(
+    ledState: LedState
+) {
+    val (recommendationsTitle, recommendationsColor, instructions) = when (ledState) {
+        LedState.GREEN -> Triple(
+            "🟢 Everything is Okay — Recommended Guidelines",
+            StatusGreen,
+            listOf(
+                Pair(Icons.Default.Check, "Everything is currently safe. No flood risk detected."),
+                Pair(Icons.Default.NotificationsNone, "Notifications will only be sent for Blue and Red status."),
+                Pair(Icons.Default.Phone, "Keep local emergency contact numbers accessible.")
+            )
+        )
+        LedState.BLUE -> Triple(
+            "🔵 WARNING STATUS — Recommended Safety Actions",
+            StatusBlue,
+            listOf(
+                Pair(Icons.Default.NotificationsActive, "Warning notification sent! Flood water is rising."),
+                Pair(Icons.Default.ElectricalServices, "Charge mobile devices and prepare emergency lights."),
+                Pair(Icons.Default.Backpack, "Pack essential medicines, dry food, and clean drinking water."),
+                Pair(Icons.Default.ArrowUpward, "Move animals, farm assets, and valuables to high ground.")
+            )
+        )
+        LedState.RED -> Triple(
+            "🔴 CRITICAL DANGER — PEOPLE MUST RUN NOW!",
+            StatusRed,
+            listOf(
+                Pair(Icons.Default.Warning, "PEOPLE MUST RUN! EVACUATE IMMEDIATELY!"),
+                Pair(Icons.Default.DirectionsRun, "Move directly to designated high-ground community shelters."),
+                Pair(Icons.Default.Dangerous, "Do NOT attempt to walk or drive across flooded roads or rivers."),
+                Pair(Icons.Default.FamilyRestroom, "Ensure children, elderly, and vulnerable neighbors evacuate safely.")
+            )
+        )
+        else -> Triple(
+            "Safety Action Plan",
+            MaterialTheme.colorScheme.primary,
+            listOf(
+                Pair(Icons.Default.Info, "Monitor community warnings and stay alert.")
+            )
+        )
+    }
+
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("what_to_do_when_floods_card"),
+            .testTag("safety_recommendations_action_card"),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.elevatedCardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -294,21 +343,13 @@ fun WhatToDoWhenFloodsCard() {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "⚡ What to do when you see floods",
+                text = recommendationsTitle,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = recommendationsColor
             )
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            val instructions = listOf(
-                Pair(Icons.Default.ArrowUpward, "Move immediately to higher ground and out of floodwaters."),
-                Pair(Icons.Default.Dangerous, "Never walk or drive through flowing water or flooded areas."),
-                Pair(Icons.Default.HomeWork, "Secure your home: turn off electricity, gas, and major utilities."),
-                Pair(Icons.Default.Backpack, "Grab your pre-packed water, dry food, and survival essentials."),
-                Pair(Icons.Default.NotificationsActive, "Monitor community warnings and evacuate at once when alerted.")
-            )
+            HorizontalDivider(color = recommendationsColor.copy(alpha = 0.2f))
 
             instructions.forEach { (icon, text) ->
                 Row(
@@ -320,13 +361,13 @@ fun WhatToDoWhenFloodsCard() {
                         modifier = Modifier
                             .size(28.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                            .background(recommendationsColor.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = icon,
                             contentDescription = "Instruction bullet",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = recommendationsColor,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -334,8 +375,8 @@ fun WhatToDoWhenFloodsCard() {
                     Text(
                         text = text,
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = if (ledState == LedState.RED) FontWeight.Bold else FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(top = 2.dp)
                     )
                 }
@@ -343,11 +384,3 @@ fun WhatToDoWhenFloodsCard() {
         }
     }
 }
-
-// Simple Quadruple container to keep status structures safe and type-safe
-data class Quadruple<out A, out B, out C, out D>(
-    val first: A,
-    val second: B,
-    val third: C,
-    val fourth: D
-)

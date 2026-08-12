@@ -57,10 +57,10 @@ import com.example.data.LedState
 import com.example.ui.AdminDashboardScreen
 import com.example.ui.VillagerPortalScreen
 import com.example.ui.WaterMonitorViewModel
+import com.example.ui.theme.StatusBlue
 import com.example.ui.theme.StatusGreen
 import com.example.ui.theme.StatusRed
-import com.example.ui.theme.StatusYellow
-import com.example.ui.theme.WorkbeeTheme
+import com.example.ui.theme.FloodAlertTheme
 
 sealed class BottomNavTab(val route: String, val title: String, val selectedIcon: ImageVector, val unselectedIcon: ImageVector) {
     object Admin : BottomNavTab("admin", "Admin Dashboard", Icons.Filled.AdminPanelSettings, Icons.Outlined.AdminPanelSettings)
@@ -72,8 +72,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            WorkbeeTheme {
-                WorkbeeAppMain()
+            FloodAlertTheme {
+                FloodAlertAppMain()
             }
         }
     }
@@ -81,11 +81,11 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WorkbeeAppMain(
+fun FloodAlertAppMain(
     viewModel: WaterMonitorViewModel = viewModel()
 ) {
     val context = LocalContext.current
-    val sharedPrefs = remember { context.getSharedPreferences("workbee_auth_prefs", Context.MODE_PRIVATE) }
+    val sharedPrefs = remember { context.getSharedPreferences("flood_alert_auth_prefs", Context.MODE_PRIVATE) }
 
     var isLoggedIn by remember { mutableStateOf(sharedPrefs.getBoolean("is_logged_in", false)) }
     var userName by remember { mutableStateOf(sharedPrefs.getString("user_name", "") ?: "") }
@@ -109,7 +109,7 @@ fun WorkbeeAppMain(
 
     val ledColor = when (currentLed) {
         LedState.GREEN -> StatusGreen
-        LedState.YELLOW -> StatusYellow
+        LedState.BLUE -> StatusBlue
         LedState.RED -> StatusRed
         LedState.UNKNOWN -> Color.Gray
     }

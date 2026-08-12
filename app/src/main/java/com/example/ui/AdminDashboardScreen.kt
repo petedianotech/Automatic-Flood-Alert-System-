@@ -5,7 +5,6 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -41,12 +40,14 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.example.data.DetectionLog
 import com.example.data.LedState
-import com.example.engine.OpenCvAnalysisResult
+import com.example.data.Quadruple
+import com.example.ui.theme.StatusBlue
+import com.example.ui.theme.StatusBlueBg
 import com.example.ui.theme.StatusGreen
 import com.example.ui.theme.StatusGreenBg
 import com.example.ui.theme.StatusGreenText
 import com.example.ui.theme.StatusRed
-import com.example.ui.theme.StatusYellow
+import com.example.ui.theme.StatusRedBg
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -96,10 +97,22 @@ fun AdminDashboardScreen(
             onRequestPermission = { cameraPermissionState.launchPermissionRequest() }
         )
 
+        // Camera Auto-Scan Schedule Trigger Slider
+        CameraSchedulerSection(
+            adminState = adminState,
+            onToggleScheduler = { viewModel.toggleCameraScheduler(it) },
+            onIntervalChange = { viewModel.updateSchedulerInterval(it) }
+        )
+
         // Real-Time Optical Detection Result
         RealTimeAnalysisCard(
             adminState = adminState,
             latestLog = latestLog
+        )
+
+        // Safety Recommendations
+        SafetyRecommendationsCard(
+            ledState = adminState.latestAnalysisResult?.detectedState ?: LedState.GREEN
         )
     }
 }
@@ -144,7 +157,7 @@ fun AdminDashboardHeader() {
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Live OpenCV River Monitoring Station",
+                    text = "Live OpenCV LED Flood Sensor Station",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -206,7 +219,7 @@ fun CameraPermissionCard(onRequestPermission: () -> Unit) {
                 color = MaterialTheme.colorScheme.onErrorContainer
             )
             Text(
-                text = "Camera access is needed for live river optical level detection and OpenCV analysis.",
+                text = "Camera access is needed for live optical LED detection and OpenCV analysis.",
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.9f)
@@ -416,7 +429,7 @@ fun CameraViewfinderSection(
                             CircularProgressIndicator(color = Color.White)
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Analyzing Optical Frame...",
+                                text = "Analyzing LED Optical Frame...",
                                 color = Color.White,
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold
@@ -426,7 +439,7 @@ fun CameraViewfinderSection(
                 }
             }
 
-            // Camera Manual Triggers (Open Camera, Stop Camera, Capture)
+            // Camera Manual Triggers (Open Camera, Stop Camera)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -492,7 +505,148 @@ fun CameraViewfinderSection(
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Capture & Run OpenCV Scan", fontWeight = FontWeight.Bold)
+                Text("Capture & Run OpenCV LED Scan", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+fun CameraSchedulerSection(
+    adminState: AdminUiState,
+    onToggleScheduler: (Boolean) -> Unit,
+    onIntervalChange: (Int) -> Unit
+) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("camera_scheduler_card"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Timer,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "Auto Camera Schedule Trigger",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Slide to adjust open/close analysis timer",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Switch(
+                    checked = adminState.isSchedulerEnabled,
+                    onCheckedChange = onToggleScheduler,
+                    modifier = Modifier.testTag("scheduler_toggle_switch")
+                )
+            }
+
+            HorizontalDivider()
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Camera Scan Frequency:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Text(
+                            text = "Every ${adminState.schedulerIntervalSeconds} sec",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+
+                // Interval Slider
+                Slider(
+                    value = adminState.schedulerIntervalSeconds.toFloat(),
+                    onValueChange = { onIntervalChange(it.toInt()) },
+                    valueRange = 5f..120f,
+                    steps = 22,
+                    enabled = adminState.isSchedulerEnabled,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("camera_scheduler_slider")
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("5s (Fast)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("30s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("120s (Power Save)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (adminState.isSchedulerEnabled) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = if (adminState.isSchedulerEnabled) Icons.Default.Autorenew else Icons.Default.PauseCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = adminState.cameraStatusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
             }
         }
     }
@@ -508,7 +662,7 @@ fun RealTimeAnalysisCard(
 
     val ledColor = when (ledState) {
         LedState.GREEN -> StatusGreen
-        LedState.YELLOW -> StatusYellow
+        LedState.BLUE -> StatusBlue
         LedState.RED -> StatusRed
         LedState.UNKNOWN -> Color.Gray
     }
@@ -539,7 +693,7 @@ fun RealTimeAnalysisCard(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Last Analysis Result",
+                text = "Last OpenCV Optical Analysis Result",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -558,7 +712,7 @@ fun RealTimeAnalysisCard(
                     Box(
                         modifier = Modifier
                             .size(48.dp)
-                            .scale(if (ledState == LedState.RED || ledState == LedState.YELLOW) pulseScale else 1f)
+                            .scale(if (ledState == LedState.RED || ledState == LedState.BLUE) pulseScale else 1f)
                             .clip(CircleShape)
                             .background(ledColor.copy(alpha = 0.25f))
                     )
@@ -577,7 +731,7 @@ fun RealTimeAnalysisCard(
                         color = ledColor.copy(alpha = 0.15f)
                     ) {
                         Text(
-                            text = "LED: ${ledState.name}",
+                            text = "LED DETECTED: ${ledState.name}",
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.labelMedium,
                             color = ledColor,
@@ -588,15 +742,127 @@ fun RealTimeAnalysisCard(
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
-                        text = "Depth: ${result?.waterLevelEstimateMeters ?: "1.25"}m",
+                        text = when (ledState) {
+                            LedState.GREEN -> "GREEN - Normal (Everything OK)"
+                            LedState.BLUE -> "BLUE - Warning Alert"
+                            LedState.RED -> "RED - DANGER EVACUATE NOW!"
+                            LedState.UNKNOWN -> "SENSOR UNKNOWN"
+                        },
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold
+                        fontWeight = FontWeight.ExtraBold,
+                        color = ledColor
                     )
 
                     Text(
-                        text = latestLog?.statusSummary ?: "Normal water level detected.",
+                        text = latestLog?.statusSummary ?: "Normal LED status detected.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SafetyRecommendationsCard(
+    ledState: LedState
+) {
+    val (statusTitle, statusColor, statusBg, recommendations) = when (ledState) {
+        LedState.GREEN -> Quadruple(
+            "NORMAL STATUS RECOMMENDATIONS",
+            StatusGreen,
+            StatusGreenBg,
+            listOf(
+                "Everything is okay. No immediate flood threat detected.",
+                "Routine camera monitoring active across flood detection nodes.",
+                "Keep emergency contacts saved on your mobile device."
+            )
+        )
+        LedState.BLUE -> Quadruple(
+            "WARNING STATUS RECOMMENDATIONS",
+            StatusBlue,
+            StatusBlueBg,
+            listOf(
+                "WARNING: River water levels rising. Stand by for community updates.",
+                "Charge mobile phones, powerbanks, and emergency flashlights.",
+                "Move livestock, essential documents, and supplies to high ground.",
+                "Prepare disaster response grab-and-go kits."
+            )
+        )
+        LedState.RED -> Quadruple(
+            "DANGER STATUS RECOMMENDATIONS",
+            StatusRed,
+            StatusRedBg,
+            listOf(
+                "CRITICAL FLOOD DANGER! PEOPLE MUST RUN TO SAFETY!",
+                "EVACUATE IMMEDIATELY to designated high-ground village shelters!",
+                "Do NOT attempt to walk or drive through flowing water.",
+                "Assist children, elderly neighbors, and persons with disabilities."
+            )
+        )
+        LedState.UNKNOWN -> Quadruple(
+            "SENSOR OFFLINE RECOMMENDATIONS",
+            Color.Gray,
+            Color(0xFFF1F5F9),
+            listOf(
+                "Camera feed obstructed or re-calibrating.",
+                "Check physical camera lens and optical LED sensor housing."
+            )
+        )
+    }
+
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("safety_recommendations_card"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = statusBg
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.HealthAndSafety,
+                    contentDescription = null,
+                    tint = statusColor,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = statusTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = statusColor
+                )
+            }
+
+            HorizontalDivider(color = statusColor.copy(alpha = 0.2f))
+
+            recommendations.forEach { recommendation ->
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(statusColor)
+                    )
+                    Text(
+                        text = recommendation,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (ledState == LedState.RED) FontWeight.Bold else FontWeight.Medium,
+                        color = statusColor
                     )
                 }
             }

@@ -232,8 +232,8 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
     fun cycleSimulationLedState() {
         val currentState = _adminState.value.activeSimulationState
         val nextState = when (currentState) {
-            LedState.GREEN -> LedState.YELLOW
-            LedState.YELLOW -> LedState.RED
+            LedState.GREEN -> LedState.BLUE
+            LedState.BLUE -> LedState.RED
             LedState.RED -> LedState.GREEN
             LedState.UNKNOWN -> LedState.GREEN
         }
@@ -310,16 +310,16 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
             // Save detection to Room database
             viewModelScope.launch {
                 val statusMessage = when (result.detectedState) {
-                    LedState.GREEN -> "Normal water level (${result.waterLevelEstimateMeters}m). River condition SAFE at $locationName."
-                    LedState.YELLOW -> "Rising water level (${result.waterLevelEstimateMeters}m). WARNING alert active at $locationName."
-                    LedState.RED -> "CRITICAL flood level (${result.waterLevelEstimateMeters}m). EVACUATION MANDATORY at $locationName!"
-                    LedState.UNKNOWN -> "Optical sensor obstructed near $locationName. Re-calibrating."
+                    LedState.GREEN -> "Normal status (GREEN LED). Everything is okay at $locationName."
+                    LedState.BLUE -> "WARNING alert active (BLUE LED). Water level rising near $locationName. Prepare emergency supplies."
+                    LedState.RED -> "CRITICAL FLOOD DANGER (RED LED). EVACUATE IMMEDIATELY at $locationName! PEOPLE MUST RUN TO SAFETY!"
+                    LedState.UNKNOWN -> "Optical camera sensor re-calibrating at $locationName."
                 }
 
                 val newLog = DetectionLog(
                     timestamp = System.currentTimeMillis(),
                     ledState = result.detectedState.name,
-                    waterLevelMeters = result.waterLevelEstimateMeters,
+                    waterLevelMeters = 0.0,
                     confidence = result.confidence,
                     hsvDetails = "H: ${result.detectedHue.toInt()}° S: ${(result.detectedSaturation * 100).toInt()}% V: ${(result.detectedBrightness * 100).toInt()}%",
                     triggerType = triggerType,
@@ -335,8 +335,8 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
                 // Save and synchronize to Firestore (supported fully offline via Firestore caching settings)
                 FirebaseManager.saveDetectionLog(newLog)
 
-                // Trigger alerts and audio siren toggles dynamically
-                if (result.detectedState == LedState.YELLOW || result.detectedState == LedState.RED) {
+                // Trigger alerts and audio siren toggles dynamically for BLUE and RED states only
+                if (result.detectedState == LedState.BLUE || result.detectedState == LedState.RED) {
                     if (result.detectedState == LedState.RED) {
                         _villagerState.update { it.copy(isAlarmActive = true) }
                     }
@@ -344,7 +344,6 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
                     // Trigger dynamic localized notification on device for risk detection
                     NotificationHelper.triggerEmergencyFloodAlert(
                         context = getApplication(),
-                        waterLevelMeters = result.waterLevelEstimateMeters,
                         location = locationName,
                         isCritical = (result.detectedState == LedState.RED)
                     )
