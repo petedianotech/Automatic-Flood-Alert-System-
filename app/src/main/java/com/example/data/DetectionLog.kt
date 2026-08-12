@@ -21,5 +21,8 @@ data class DetectionLog(
     val hsvDetails: String = "H: 120° S: 88% V: 92%",
     val triggerType: String = "MANUAL", // "MANUAL" or "SCHEDULED"
     val detectedColorHex: String = "#22C55E",
-    val statusSummary: String = "Normal water flow observed"
+    val statusSummary: String = "Normal water flow observed",
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
+    val locationName: String = "Station Alpha"
 )

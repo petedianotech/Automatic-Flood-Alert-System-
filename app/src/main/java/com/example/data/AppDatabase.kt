@@ -29,6 +29,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "workbee_hydrowatch.db"
                 )
+                .fallbackToDestructiveMigration()
                 .addCallback(DatabaseCallback())
                 .build()
                 INSTANCE = instance

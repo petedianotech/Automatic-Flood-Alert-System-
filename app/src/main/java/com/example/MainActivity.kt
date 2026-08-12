@@ -43,6 +43,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material3.IconButton
+import com.example.ui.CreateAccountScreen
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -79,7 +84,15 @@ class MainActivity : ComponentActivity() {
 fun WorkbeeAppMain(
     viewModel: WaterMonitorViewModel = viewModel()
 ) {
-    var selectedTab by remember { mutableStateOf<BottomNavTab>(BottomNavTab.Villager) }
+    val context = LocalContext.current
+    val sharedPrefs = remember { context.getSharedPreferences("workbee_auth_prefs", Context.MODE_PRIVATE) }
+
+    var isLoggedIn by remember { mutableStateOf(sharedPrefs.getBoolean("is_logged_in", false)) }
+    var userName by remember { mutableStateOf(sharedPrefs.getString("user_name", "") ?: "") }
+    var userVillage by remember { mutableStateOf(sharedPrefs.getString("user_village", "") ?: "") }
+    var userRole by remember { mutableStateOf(sharedPrefs.getString("user_role", "VILLAGER") ?: "VILLAGER") }
+
+    var selectedTab by remember { mutableStateOf<BottomNavTab>(if (userRole == "ADMIN") BottomNavTab.Admin else BottomNavTab.Villager) }
 
     val adminState by viewModel.adminState.collectAsStateWithLifecycle()
     val villagerState by viewModel.villagerState.collectAsStateWithLifecycle()
@@ -99,6 +112,27 @@ fun WorkbeeAppMain(
         LedState.YELLOW -> StatusYellow
         LedState.RED -> StatusRed
         LedState.UNKNOWN -> Color.Gray
+    }
+
+    // Intercept with the account creation screen if not authenticated
+    if (!isLoggedIn) {
+        CreateAccountScreen(
+            onAccountCreated = { name, village, role ->
+                sharedPrefs.edit()
+                    .putBoolean("is_logged_in", true)
+                    .putString("user_name", name)
+                    .putString("user_village", village)
+                    .putString("user_role", role)
+                    .apply()
+
+                userName = name
+                userVillage = village
+                userRole = role
+                isLoggedIn = true
+                selectedTab = if (role == "ADMIN") BottomNavTab.Admin else BottomNavTab.Villager
+            }
+        )
+        return
     }
 
     Scaffold(
@@ -127,7 +161,7 @@ fun WorkbeeAppMain(
                     Surface(
                         shape = CircleShape,
                         color = ledColor.copy(alpha = 0.15f),
-                        modifier = Modifier.padding(end = 12.dp)
+                        modifier = Modifier.padding(end = 4.dp)
                     ) {
                         Text(
                             text = currentLed.name,
@@ -137,6 +171,26 @@ fun WorkbeeAppMain(
                             color = ledColor
                         )
                     }
+
+                    // Quick Top-Bar Logout
+                    IconButton(
+                        onClick = {
+                            sharedPrefs.edit().clear().apply()
+                            isLoggedIn = false
+                            userName = ""
+                            userVillage = ""
+                            userRole = "VILLAGER"
+                        },
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .testTag("top_bar_logout_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ExitToApp,
+                            contentDescription = "Logout icon",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
@@ -144,34 +198,37 @@ fun WorkbeeAppMain(
             )
         },
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.testTag("bottom_navigation_bar")
-            ) {
-                listOf(BottomNavTab.Admin, BottomNavTab.Villager).forEach { tab ->
-                    val isSelected = selectedTab == tab
-                    NavigationBarItem(
-                        selected = isSelected,
-                        onClick = { selectedTab = tab },
-                        icon = {
-                            Icon(
-                                imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                contentDescription = tab.title
+            // Only show navigation bar if logged in as ADMIN
+            if (userRole == "ADMIN") {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.testTag("bottom_navigation_bar")
+                ) {
+                    listOf(BottomNavTab.Admin, BottomNavTab.Villager).forEach { tab ->
+                        val isSelected = selectedTab == tab
+                        NavigationBarItem(
+                            selected = isSelected,
+                            onClick = { selectedTab = tab },
+                            icon = {
+                                Icon(
+                                    imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                    contentDescription = tab.title
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = tab.title,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            modifier = Modifier.testTag("tab_${tab.route}"),
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
                             )
-                        },
-                        label = {
-                            Text(
-                                text = tab.title,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        },
-                        modifier = Modifier.testTag("tab_${tab.route}"),
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
                         )
-                    )
+                    }
                 }
             }
         }
@@ -182,24 +239,32 @@ fun WorkbeeAppMain(
                 .padding(innerPadding),
             color = MaterialTheme.colorScheme.background
         ) {
-            when (selectedTab) {
-                BottomNavTab.Admin -> {
-                    AdminDashboardScreen(
-                        viewModel = viewModel,
-                        adminState = adminState,
-                        latestLog = latestLog,
-                        logs = logs
-                    )
-                }
-                BottomNavTab.Villager -> {
-                    VillagerPortalScreen(
-                        viewModel = viewModel,
-                        villagerState = villagerState,
-                        latestLog = latestLog,
-                        contacts = contacts,
-                        shelters = shelters
-                    )
-                }
+            // Strict role separation
+            if (userRole == "ADMIN" && selectedTab == BottomNavTab.Admin) {
+                AdminDashboardScreen(
+                    viewModel = viewModel,
+                    adminState = adminState,
+                    latestLog = latestLog,
+                    logs = logs
+                )
+            } else {
+                VillagerPortalScreen(
+                    viewModel = viewModel,
+                    villagerState = villagerState,
+                    latestLog = latestLog,
+                    contacts = contacts,
+                    shelters = shelters,
+                    logs = logs,
+                    userName = userName,
+                    userVillage = userVillage,
+                    onLogout = {
+                        sharedPrefs.edit().clear().apply()
+                        isLoggedIn = false
+                        userName = ""
+                        userVillage = ""
+                        userRole = "VILLAGER"
+                    }
+                )
             }
         }
     }

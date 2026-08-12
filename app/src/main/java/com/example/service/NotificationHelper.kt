@@ -49,7 +49,8 @@ object NotificationHelper {
     fun triggerEmergencyFloodAlert(
         context: Context,
         waterLevelMeters: Double,
-        location: String = "River Valley Station #01"
+        location: String = "River Valley Station #01",
+        isCritical: Boolean = true
     ) {
         createNotificationChannel(context)
 
@@ -67,19 +68,29 @@ object NotificationHelper {
         val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
-        // Using safe fallback drawable resource since icon names might vary
+        val title = if (isCritical) "🚨 EVACUATE NOW - CRITICAL FLOOD ALERT!" else "⚠️ WARNING - RISING WATER LEVEL"
+        val subtitle = if (isCritical) {
+            "RED LED DETECTED! Water level reached ${waterLevelMeters}m at $location. Seek high ground immediately!"
+        } else {
+            "YELLOW LED DETECTED! Water level is rising (${waterLevelMeters}m) at $location. Prepare emergency bags!"
+        }
+
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
-            .setContentTitle("🚨 EVACUATE NOW - CRITICAL FLOOD ALERT!")
-            .setContentText("RED LED DETECTED! Water level reached ${waterLevelMeters}m at $location. Seek high ground immediately!")
+            .setContentTitle(title)
+            .setContentText(subtitle)
             .setStyle(
                 NotificationCompat.BigTextStyle()
-                    .bigText("🚨 RED LED DETECTED BY CAMERA!\nWater level reached ${waterLevelMeters}m at $location.\n\nCRITICAL FLOOD DANGER: Move to designated village evacuation shelters immediately!")
+                    .bigText(if (isCritical) {
+                        "🚨 RED LED DETECTED BY CAMERA!\nWater level reached ${waterLevelMeters}m at $location.\n\nCRITICAL FLOOD DANGER: Move to designated village evacuation shelters immediately!"
+                    } else {
+                        "⚠️ YELLOW LED DETECTED BY CAMERA!\nWater level is rising (${waterLevelMeters}m) at $location.\n\nWARNING: Please prepare emergency kits and stay alert for directives."
+                    })
             )
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setSound(soundUri)
-            .setVibrate(longArrayOf(0, 500, 200, 500, 200, 1000))
+            .setVibrate(if (isCritical) longArrayOf(0, 500, 200, 500, 200, 1000) else longArrayOf(0, 300, 100, 300))
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .build()

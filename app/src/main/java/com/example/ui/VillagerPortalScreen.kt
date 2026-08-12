@@ -35,7 +35,10 @@ import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -91,6 +94,10 @@ fun VillagerPortalScreen(
     latestLog: DetectionLog?,
     contacts: List<EmergencyContact>,
     shelters: List<EvacuationShelter>,
+    logs: List<DetectionLog> = emptyList(),
+    userName: String = "",
+    userVillage: String = "",
+    onLogout: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -101,7 +108,7 @@ fun VillagerPortalScreen(
     }
 
     var selectedTabIndex by remember { mutableStateOf(0) }
-    val tabTitles = listOf("🚨 Action Plan", "🏠 Shelters", "📞 Hotlines")
+    val tabTitles = listOf("🚨 Action Plan", "🛰️ Live Alerts", "🏠 Shelters", "📞 Hotlines", "👤 Profile")
 
     LazyColumn(
         modifier = modifier
@@ -169,6 +176,29 @@ fun VillagerPortalScreen(
                 }
             }
             1 -> {
+                // Live Alerts Page: Feed of geo-tagged logs/posts from different flood alert nodes
+                if (logs.isEmpty()) {
+                    item {
+                        EmptyStateCard(message = "No live station alerts recorded yet. Deployed river sensors will broadcast telemetry dynamically.")
+                    }
+                } else {
+                    items(logs) { log ->
+                        VillagerAlertPostItemRow(log = log, onNavigateClick = { lat, lng, label ->
+                            val gmmIntentUri = Uri.parse("geo:0,0?q=$lat,$lng(${Uri.encode(label)})")
+                            val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
+                            mapIntent.setPackage("com.google.android.apps.maps")
+                            try {
+                                context.startActivity(mapIntent)
+                            } catch (e: Exception) {
+                                // Fallback web maps link if maps app is missing
+                                val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lng"))
+                                context.startActivity(webIntent)
+                            }
+                        })
+                    }
+                }
+            }
+            2 -> {
                 // Nearby Shelters Page: Filtered list for high-efficiency response
                 if (shelters.isEmpty()) {
                     item {
@@ -187,7 +217,7 @@ fun VillagerPortalScreen(
                     }
                 }
             }
-            2 -> {
+            3 -> {
                 // Emergency Rescue & Hotlines Page
                 if (contacts.isEmpty()) {
                     item {
@@ -199,6 +229,97 @@ fun VillagerPortalScreen(
                             val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${contact.phoneNumber}"))
                             context.startActivity(intent)
                         })
+                    }
+                }
+            }
+            4 -> {
+                item {
+                    ElevatedCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .testTag("villager_profile_card"),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.elevatedCardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            // Avatar Icon Box
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = "User Profile Avatar",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = userName.ifBlank { "HydroWatch Member" },
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Black,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "🏡 Village: ${userVillage.ifBlank { "Dzenje Area" }}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "System Access: Active Member",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+                            // Logout button
+                            Button(
+                                onClick = onLogout,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    contentColor = MaterialTheme.colorScheme.onError
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp)
+                                    .testTag("profile_logout_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ExitToApp,
+                                    contentDescription = "Logout icon",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Log Out of Session",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -704,4 +825,162 @@ fun EmptyStateCard(message: String) {
 private fun formatTimestamp(timestamp: Long): String {
     val sdf = java.text.SimpleDateFormat("MMM dd, yyyy • HH:mm:ss", java.util.Locale.getDefault())
     return sdf.format(java.util.Date(timestamp))
+}
+
+@Composable
+fun VillagerAlertPostItemRow(log: DetectionLog, onNavigateClick: (Double, Double, String) -> Unit) {
+    val ledState = try {
+        LedState.valueOf(log.ledState)
+    } catch (e: Exception) {
+        LedState.GREEN
+    }
+
+    val ledColor = when (ledState) {
+        LedState.GREEN -> StatusGreen
+        LedState.YELLOW -> StatusYellow
+        LedState.RED -> StatusRed
+        LedState.UNKNOWN -> Color.Gray
+    }
+
+    val labelText = when (ledState) {
+        LedState.GREEN -> "STABLE"
+        LedState.YELLOW -> "RISING WARNING"
+        LedState.RED -> "CRITICAL DANGER"
+        LedState.UNKNOWN -> "OFFLINE"
+    }
+
+    val statusBgColor = when (ledState) {
+        LedState.GREEN -> StatusGreenBg
+        LedState.YELLOW -> StatusYellowBg
+        LedState.RED -> StatusRedBg
+        LedState.UNKNOWN -> Color(0xFFF1F5F9)
+    }
+
+    val statusTextColor = when (ledState) {
+        LedState.GREEN -> StatusGreenText
+        LedState.YELLOW -> StatusYellowText
+        LedState.RED -> StatusRedText
+        LedState.UNKNOWN -> HighContrastTextDark
+    }
+
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("villager_alert_item_${log.id}"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Header Row: Status Badge + Trigger Type + Action Navigation Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = statusBgColor
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(ledColor)
+                        )
+                        Text(
+                            text = labelText,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = statusTextColor
+                        )
+                    }
+                }
+
+                // Show trigger source: "AUTOMATED SCAN" or "MANUAL"
+                Text(
+                    text = log.triggerType,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            // Main Info Section
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = log.locationName ?: "River Station Alpha",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                
+                Text(
+                    text = log.statusSummary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            // Metrics row: Coordinates + Map Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Water Height: ${log.waterLevelMeters}m  •  Conf: ${((log.confidence) * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Coordinates: ${"%.4f".format(log.latitude)}, ${"%.4f".format(log.longitude)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Button(
+                    onClick = { onNavigateClick(log.latitude, log.longitude, log.locationName ?: "River Station Alpha") },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier.testTag("navigate_sensor_${log.id}_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Directions,
+                        contentDescription = "Navigate to Station",
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("MAP", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            // Footer Timestamp
+            Text(
+                text = "Logged: ${formatTimestamp(log.timestamp)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+    }
 }

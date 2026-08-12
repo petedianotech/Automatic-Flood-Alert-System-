@@ -14,6 +14,11 @@ import com.example.engine.OpenCvAnalysisResult
 import com.example.engine.OpenCvColorDetector
 import com.example.service.FirebaseManager
 import com.example.service.NotificationHelper
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import android.annotation.SuppressLint
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -218,6 +223,55 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
         captureAndAnalyze(forcedState = nextState)
     }
 
+    @SuppressLint("MissingPermission")
+    private fun fetchCurrentLocation(onLocationResult: (Double, Double, String) -> Unit) {
+        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(getApplication<Application>())
+        
+        val hasFine = ContextCompat.checkSelfPermission(
+            getApplication(),
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(
+            getApplication(),
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasFine || hasCoarse) {
+            fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+                .addOnSuccessListener { location ->
+                    if (location != null) {
+                        val name = getStationNameForCoords(location.latitude, location.longitude)
+                        onLocationResult(location.latitude, location.longitude, name)
+                    } else {
+                        fusedLocationClient.lastLocation.addOnSuccessListener { lastLoc ->
+                            if (lastLoc != null) {
+                                val name = getStationNameForCoords(lastLoc.latitude, lastLoc.longitude)
+                                onLocationResult(lastLoc.latitude, lastLoc.longitude, name)
+                            } else {
+                                onLocationResult(14.5995, 120.9842, "River Station Alpha")
+                            }
+                        }.addOnFailureListener {
+                            onLocationResult(14.5995, 120.9842, "River Station Alpha")
+                        }
+                    }
+                }
+                .addOnFailureListener {
+                    onLocationResult(14.5995, 120.9842, "River Station Alpha")
+                }
+        } else {
+            onLocationResult(14.5995, 120.9842, "River Station Alpha")
+        }
+    }
+
+    private fun getStationNameForCoords(lat: Double, lng: Double): String {
+        return if (lat == 14.5995 && lng == 120.9842) {
+            "River Station Alpha"
+        } else {
+            val nodeNum = (Math.abs(lat + lng) * 100).toInt() % 4 + 1
+            "Flood Detection Node #$nodeNum"
+        }
+    }
+
     private fun performAnalysis(
         forcedState: LedState? = null,
         customBitmap: Bitmap? = null,
@@ -234,39 +288,49 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
             )
         }
 
-        // Save detection to Room database
-        viewModelScope.launch {
-            val statusMessage = when (result.detectedState) {
-                LedState.GREEN -> "Normal water level (${result.waterLevelEstimateMeters}m). River condition SAFE."
-                LedState.YELLOW -> "Rising water level (${result.waterLevelEstimateMeters}m). WARNING alert active."
-                LedState.RED -> "CRITICAL flood level (${result.waterLevelEstimateMeters}m). EVACUATION MANDATORY!"
-                LedState.UNKNOWN -> "Optical sensor obstructed. Re-calibrating."
-            }
+        fetchCurrentLocation { latitude, longitude, locationName ->
+            // Save detection to Room database
+            viewModelScope.launch {
+                val statusMessage = when (result.detectedState) {
+                    LedState.GREEN -> "Normal water level (${result.waterLevelEstimateMeters}m). River condition SAFE at $locationName."
+                    LedState.YELLOW -> "Rising water level (${result.waterLevelEstimateMeters}m). WARNING alert active at $locationName."
+                    LedState.RED -> "CRITICAL flood level (${result.waterLevelEstimateMeters}m). EVACUATION MANDATORY at $locationName!"
+                    LedState.UNKNOWN -> "Optical sensor obstructed near $locationName. Re-calibrating."
+                }
 
-            val newLog = DetectionLog(
-                timestamp = System.currentTimeMillis(),
-                ledState = result.detectedState.name,
-                waterLevelMeters = result.waterLevelEstimateMeters,
-                confidence = result.confidence,
-                hsvDetails = "H: ${result.detectedHue.toInt()}° S: ${(result.detectedSaturation * 100).toInt()}% V: ${(result.detectedBrightness * 100).toInt()}%",
-                triggerType = triggerType,
-                detectedColorHex = result.colorHex,
-                statusSummary = statusMessage
-            )
-
-            repository.saveDetectionLog(newLog)
-
-            // Save and synchronize to Firestore (supported fully offline via Firestore caching settings)
-            FirebaseManager.saveDetectionLog(newLog)
-
-            // Trigger alarm automatically if status switches to RED
-            if (result.detectedState == LedState.RED) {
-                _villagerState.update { it.copy(isAlarmActive = true) }
-                // Trigger loud system emergency heads-up notification instantly!
-                NotificationHelper.triggerEmergencyFloodAlert(
-                    context = getApplication(),
-                    waterLevelMeters = result.waterLevelEstimateMeters
+                val newLog = DetectionLog(
+                    timestamp = System.currentTimeMillis(),
+                    ledState = result.detectedState.name,
+                    waterLevelMeters = result.waterLevelEstimateMeters,
+                    confidence = result.confidence,
+                    hsvDetails = "H: ${result.detectedHue.toInt()}° S: ${(result.detectedSaturation * 100).toInt()}% V: ${(result.detectedBrightness * 100).toInt()}%",
+                    triggerType = triggerType,
+                    detectedColorHex = result.colorHex,
+                    statusSummary = statusMessage,
+                    latitude = latitude,
+                    longitude = longitude,
+                    locationName = locationName
                 )
+
+                repository.saveDetectionLog(newLog)
+
+                // Save and synchronize to Firestore (supported fully offline via Firestore caching settings)
+                FirebaseManager.saveDetectionLog(newLog)
+
+                // Trigger alerts and audio siren toggles dynamically
+                if (result.detectedState == LedState.YELLOW || result.detectedState == LedState.RED) {
+                    if (result.detectedState == LedState.RED) {
+                        _villagerState.update { it.copy(isAlarmActive = true) }
+                    }
+                    
+                    // Trigger dynamic localized notification on device for risk detection
+                    NotificationHelper.triggerEmergencyFloodAlert(
+                        context = getApplication(),
+                        waterLevelMeters = result.waterLevelEstimateMeters,
+                        location = locationName,
+                        isCritical = (result.detectedState == LedState.RED)
+                    )
+                }
             }
         }
     }

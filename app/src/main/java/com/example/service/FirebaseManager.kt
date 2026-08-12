@@ -3,6 +3,7 @@ package com.example.service
 import android.content.Context
 import android.util.Log
 import com.example.data.DetectionLog
+import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.Query
@@ -18,6 +19,11 @@ object FirebaseManager {
 
     fun initialize(context: Context) {
         try {
+            // Explicitly initialize FirebaseApp if not already initialized
+            if (FirebaseApp.getApps(context).isEmpty()) {
+                FirebaseApp.initializeApp(context)
+            }
+
             val db = FirebaseFirestore.getInstance()
             
             // Configure ultra-fast persistent local caching (100MB of high-throughput cache space)
