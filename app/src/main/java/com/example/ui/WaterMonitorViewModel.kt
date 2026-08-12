@@ -30,16 +30,17 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class AdminUiState(
-    val isSchedulerEnabled: Boolean = true,
-    val schedulerIntervalSeconds: Int = 15,
-    val countdownSeconds: Int = 15,
-    val isAnalyzing: Boolean = false,
-    val isCameraOpen: Boolean = true,
-    val isLiveDetectionMode: Boolean = true,
-    val cameraStatusText: String = "Live Camera Feed Active • Real-Time Detection",
+    val isVoiceListening: Boolean = false,
+    val voiceStatusText: String = "Voice Command Dispatch Active • Speak or Tap Command",
+    val lastRecognizedSpeech: String = "Tap microphone or say 'RED ALERT'",
+    val isMotionSensorArmed: Boolean = false,
+    val isMotionDetected: Boolean = false,
+    val motionSensorStatusText: String = "Motion Alarm Disarmed • Tap to Arm Guard",
+    val motionSensitivity: Float = 3.5f,
+    val lastAccelerationDelta: Float = 0f,
     val activeSimulationState: LedState = LedState.GREEN,
     val latestAnalysisResult: OpenCvAnalysisResult? = null,
-    val systemHealth: String = "Flood Node #01 Online • Signal: 98% • Battery: 94%",
+    val systemHealth: String = "Voice & Motion Guard Node #01 Online • Sensors Active • Battery: 98%",
     val lastCaptureTimeText: String = "Just now"
 )
 
@@ -70,8 +71,6 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
 
     private val _villagerState = MutableStateFlow(VillagerUiState())
     val villagerState: StateFlow<VillagerUiState> = _villagerState.asStateFlow()
-
-    private var schedulerJob: Job? = null
 
     init {
         // Initialize offline Firestore and FCM subscription
@@ -111,153 +110,130 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
             initialValue = emptyList()
         )
 
-        // Perform initial frame generation and analysis
+        // Perform initial analysis state
         performAnalysis(forcedState = LedState.GREEN, triggerType = "INITIALIZATION")
-
-        // Auto-start camera schedule automatically on boot
-        toggleCameraScheduler(true)
     }
 
-    fun openCamera() {
+    fun startVoiceListening() {
         _adminState.update {
             it.copy(
-                isCameraOpen = true,
-                cameraStatusText = "Camera Open • Live Optical Feed Active"
+                isVoiceListening = true,
+                voiceStatusText = "🎙️ Listening for voice command... Speak now!"
             )
         }
     }
 
-    fun stopCamera() {
+    fun stopVoiceListening() {
         _adminState.update {
             it.copy(
-                isCameraOpen = false,
-                cameraStatusText = "Camera Stopped • Standby Mode"
+                isVoiceListening = false,
+                voiceStatusText = "Voice listener paused • Tap mic to speak"
             )
         }
     }
 
-    fun toggleDetectionMode(isLiveMode: Boolean) {
-        _adminState.update {
-            it.copy(
-                isLiveDetectionMode = isLiveMode,
-                cameraStatusText = if (isLiveMode) "Live Optical Camera Mode Active" else "Test Calibration Mode Active"
-            )
+    fun processVoiceCommand(spokenText: String) {
+        val cleanText = spokenText.lowercase(java.util.Locale.getDefault()).trim()
+        _adminState.update { it.copy(lastRecognizedSpeech = spokenText) }
+
+        when {
+            cleanText.contains("red") || cleanText.contains("evacuate") || cleanText.contains("danger") || cleanText.contains("flood") || cleanText.contains("emergency") || cleanText.contains("run") -> {
+                _adminState.update {
+                    it.copy(
+                        voiceStatusText = "Voice Match: 'RED ALERT' -> Emergency Siren & Evacuation Broadcast Triggered!",
+                        activeSimulationState = LedState.RED
+                    )
+                }
+                performAnalysis(forcedState = LedState.RED, triggerType = "VOICE_COMMAND")
+            }
+            cleanText.contains("blue") || cleanText.contains("warning") || cleanText.contains("rising") || cleanText.contains("caution") -> {
+                _adminState.update {
+                    it.copy(
+                        voiceStatusText = "Voice Match: 'BLUE WARNING' -> Water Rising Flood Warning Broadcasted!",
+                        activeSimulationState = LedState.BLUE
+                    )
+                }
+                performAnalysis(forcedState = LedState.BLUE, triggerType = "VOICE_COMMAND")
+            }
+            cleanText.contains("green") || cleanText.contains("normal") || cleanText.contains("safe") || cleanText.contains("clear") || cleanText.contains("reset") || cleanText.contains("okay") -> {
+                _adminState.update {
+                    it.copy(
+                        voiceStatusText = "Voice Match: 'GREEN NORMAL' -> System Reset to Normal Safe Status",
+                        activeSimulationState = LedState.GREEN
+                    )
+                }
+                performAnalysis(forcedState = LedState.GREEN, triggerType = "VOICE_COMMAND")
+            }
+            else -> {
+                _adminState.update {
+                    it.copy(
+                        voiceStatusText = "Unrecognized Speech: \"$spokenText\". Say 'RED ALERT', 'BLUE WARNING', or 'GREEN NORMAL'."
+                    )
+                }
+            }
         }
     }
 
     fun setSimulationLedState(state: LedState) {
         _adminState.update { it.copy(activeSimulationState = state) }
-        captureAndAnalyze(forcedState = state)
+        val triggerName = when (state) {
+            LedState.RED -> "MANUAL_RED_ALERT"
+            LedState.BLUE -> "MANUAL_BLUE_WARNING"
+            LedState.GREEN -> "MANUAL_GREEN_NORMAL"
+            LedState.UNKNOWN -> "MANUAL_TRIGGER"
+        }
+        performAnalysis(forcedState = state, triggerType = triggerName)
     }
 
-    fun toggleCameraScheduler(enabled: Boolean) {
+    fun toggleMotionSensor(armed: Boolean) {
         _adminState.update {
             it.copy(
-                isSchedulerEnabled = enabled,
-                cameraStatusText = if (enabled) "Camera Auto-Scheduler Active" else "Scheduler Paused • Manual Mode"
+                isMotionSensorArmed = armed,
+                isMotionDetected = if (!armed) false else it.isMotionDetected,
+                motionSensorStatusText = if (armed) "🛡️ Motion Guard ARMED • Listening for movement/vibration" else "Motion Guard Disarmed • Tap to Arm"
             )
         }
-        if (enabled) {
-            startSchedulerTimer()
-        } else {
-            schedulerJob?.cancel()
-            schedulerJob = null
+    }
+
+    fun updateMotionSensitivity(sensitivity: Float) {
+        _adminState.update { it.copy(motionSensitivity = sensitivity) }
+    }
+
+    fun processAccelerometerValues(x: Float, y: Float, z: Float) {
+        val currentState = _adminState.value
+        if (!currentState.isMotionSensorArmed) return
+
+        // Standard gravity is approx 9.81 m/s²
+        val totalAcceleration = kotlin.math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
+        val delta = kotlin.math.abs(totalAcceleration - 9.81f)
+
+        _adminState.update { it.copy(lastAccelerationDelta = delta) }
+
+        if (delta > currentState.motionSensitivity && !currentState.isMotionDetected) {
+            triggerMotionAlarm("PHYSICAL_MOVEMENT_SENSOR")
         }
     }
 
-    fun updateSchedulerInterval(seconds: Int) {
-        val validSeconds = seconds.coerceAtLeast(3)
-        _adminState.update { it.copy(schedulerIntervalSeconds = validSeconds, countdownSeconds = validSeconds) }
-        if (_adminState.value.isSchedulerEnabled) {
-            startSchedulerTimer()
-        }
-    }
-
-    private fun startSchedulerTimer() {
-        schedulerJob?.cancel()
-        schedulerJob = viewModelScope.launch {
-            while (_adminState.value.isSchedulerEnabled) {
-                var remaining = _adminState.value.schedulerIntervalSeconds
-                _adminState.update {
-                    it.copy(
-                        countdownSeconds = remaining,
-                        cameraStatusText = if (it.isCameraOpen) "Camera Live • Next scan in ${remaining}s" else "Camera Standby • Next scan in ${remaining}s"
-                    )
-                }
-                while (remaining > 0 && _adminState.value.isSchedulerEnabled) {
-                    delay(1000)
-                    remaining--
-                    _adminState.update {
-                        it.copy(
-                            countdownSeconds = remaining,
-                            cameraStatusText = if (it.isCameraOpen) "Camera Live • Next scan in ${remaining}s" else "Camera Standby • Next scan in ${remaining}s"
-                        )
-                    }
-                }
-
-                if (_adminState.value.isSchedulerEnabled) {
-                    _adminState.update {
-                        it.copy(
-                            isAnalyzing = true,
-                            cameraStatusText = "CAMERA LIVE • Capturing Frame & Analyzing..."
-                        )
-                    }
-                    delay(400)
-
-                    performAnalysis(triggerType = "SCHEDULED")
-
-                    _adminState.update {
-                        it.copy(
-                            isAnalyzing = false,
-                            cameraStatusText = "Camera Live • Scan Logged"
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    fun captureAndAnalyze(forcedState: LedState? = null, customBitmap: Bitmap? = null) {
-        viewModelScope.launch {
-            _adminState.update {
-                it.copy(
-                    isAnalyzing = true,
-                    cameraStatusText = "CAMERA LIVE • Manual Scan Capturing..."
-                )
-            }
-            delay(300)
-
-            val targetForcedState = if (_adminState.value.isLiveDetectionMode && customBitmap != null) {
-                null // Real pixel HSV color detection on physical camera bitmap
-            } else {
-                forcedState ?: _adminState.value.activeSimulationState
-            }
-
-            performAnalysis(
-                forcedState = targetForcedState,
-                customBitmap = customBitmap,
-                triggerType = "MANUAL"
+    fun triggerMotionAlarm(reason: String = "MOTION_SENSOR") {
+        _adminState.update {
+            it.copy(
+                isMotionDetected = true,
+                motionSensorStatusText = "🚨 MOTION / TAMPER ALARM TRIGGERED! Device moved!",
+                activeSimulationState = LedState.RED
             )
-
-            _adminState.update {
-                it.copy(
-                    isAnalyzing = false,
-                    cameraStatusText = "Camera Live • Manual Scan Saved"
-                )
-            }
         }
+        _villagerState.update { it.copy(isAlarmActive = true) }
+        performAnalysis(forcedState = LedState.RED, triggerType = reason)
     }
 
-    fun cycleSimulationLedState() {
-        val currentState = _adminState.value.activeSimulationState
-        val nextState = when (currentState) {
-            LedState.GREEN -> LedState.BLUE
-            LedState.BLUE -> LedState.RED
-            LedState.RED -> LedState.GREEN
-            LedState.UNKNOWN -> LedState.GREEN
+    fun resetMotionAlarm() {
+        _adminState.update {
+            it.copy(
+                isMotionDetected = false,
+                motionSensorStatusText = if (it.isMotionSensorArmed) "🛡️ Motion Guard ARMED • Monitoring active" else "Motion Guard Disarmed"
+            )
         }
-        _adminState.update { it.copy(activeSimulationState = nextState) }
-        captureAndAnalyze(forcedState = nextState)
+        _villagerState.update { it.copy(isAlarmActive = false) }
     }
 
     @SuppressLint("MissingPermission")
@@ -309,6 +285,8 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
         }
     }
 
+    private var lastLoggedState: LedState? = null
+
     private fun performAnalysis(
         forcedState: LedState? = null,
         customBitmap: Bitmap? = null,
@@ -324,6 +302,13 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
                 lastCaptureTimeText = formatCurrentTime()
             )
         }
+
+        // Throttle continuous LIVE_STREAM logging
+        if (triggerType == "LIVE_STREAM" && result.detectedState == lastLoggedState) {
+            return
+        }
+        
+        lastLoggedState = result.detectedState
 
         fetchCurrentLocation { latitude, longitude, locationName ->
             // Save detection to Room database

@@ -24,52 +24,58 @@ object FirebaseManager {
                 FirebaseApp.initializeApp(context)
             }
 
-            val db = FirebaseFirestore.getInstance()
-            
-            // Configure ultra-fast persistent local caching (100MB of high-throughput cache space)
-            // This guarantees reads/writes return instantly on-device and sync asynchronously.
-            val settings = FirebaseFirestoreSettings.Builder()
-                .setLocalCacheSettings(
-                    com.google.firebase.firestore.PersistentCacheSettings.newBuilder()
-                        .setSizeBytes(104857600) // 100 MB high performance cache
+            if (FirebaseApp.getApps(context).isNotEmpty()) {
+                val db = FirebaseFirestore.getInstance()
+                
+                try {
+                    val settings = FirebaseFirestoreSettings.Builder()
+                        .setLocalCacheSettings(
+                            com.google.firebase.firestore.PersistentCacheSettings.newBuilder()
+                                .setSizeBytes(104857600) // 100 MB high performance cache
+                                .build()
+                        )
                         .build()
-                )
-                .build()
-            db.firestoreSettings = settings
-            dbInstance = db
-            Log.d("FirebaseManager", "Firebase Firestore initialized with ultra-fast persistent cache settings.")
-
-            // Automatically subscribe device to flood_alerts messaging topic
-            FirebaseMessaging.getInstance().subscribeToTopic("flood_alerts")
-                .addOnCompleteListener { task ->
-                    if (task.isSuccessful) {
-                        Log.d("FirebaseManager", "Successfully subscribed to FCM topic 'flood_alerts'")
-                    } else {
-                        Log.e("FirebaseManager", "Failed to subscribe to 'flood_alerts'", task.exception)
-                    }
+                    db.firestoreSettings = settings
+                } catch (e: Throwable) {
+                    Log.w("FirebaseManager", "Firestore settings already applied or unavailable: ${e.message}")
                 }
 
-            // Real-time listener for native custom broadcast notifications
-            db.collection("broadcast_notifications")
-                .whereGreaterThan("timestamp", appStartTime)
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        Log.e("FirebaseManager", "Error listening to broadcasts: ${error.message}")
-                        return@addSnapshotListener
-                    }
-                    if (snapshot != null) {
-                        for (change in snapshot.documentChanges) {
-                            if (change.type == com.google.firebase.firestore.DocumentChange.Type.ADDED) {
-                                val doc = change.document
-                                val title = doc.getString("title") ?: "📢 Community Broadcast"
-                                val body = doc.getString("body") ?: "A new message was broadcasted."
-                                NotificationHelper.showCustomNotification(context, title, body)
+                dbInstance = db
+                Log.d("FirebaseManager", "Firebase Firestore initialized.")
+
+                try {
+                    FirebaseMessaging.getInstance().subscribeToTopic("flood_alerts")
+                        .addOnCompleteListener { task ->
+                            if (task.isSuccessful) {
+                                Log.d("FirebaseManager", "Successfully subscribed to FCM topic 'flood_alerts'")
+                            }
+                        }
+                } catch (e: Throwable) {
+                    Log.w("FirebaseManager", "FCM messaging topic subscription skipped: ${e.message}")
+                }
+
+                // Real-time listener for native custom broadcast notifications
+                db.collection("broadcast_notifications")
+                    .whereGreaterThan("timestamp", appStartTime)
+                    .addSnapshotListener { snapshot, error ->
+                        if (error != null) {
+                            Log.e("FirebaseManager", "Error listening to broadcasts: ${error.message}")
+                            return@addSnapshotListener
+                        }
+                        if (snapshot != null) {
+                            for (change in snapshot.documentChanges) {
+                                if (change.type == com.google.firebase.firestore.DocumentChange.Type.ADDED) {
+                                    val doc = change.document
+                                    val title = doc.getString("title") ?: "📢 Community Broadcast"
+                                    val body = doc.getString("body") ?: "A new message was broadcasted."
+                                    NotificationHelper.showCustomNotification(context, title, body)
+                                }
                             }
                         }
                     }
-                }
-        } catch (e: Exception) {
-            Log.e("FirebaseManager", "Firebase initialize error (check google-services.json placement): ${e.message}")
+            }
+        } catch (e: Throwable) {
+            Log.e("FirebaseManager", "Firebase initialize error (safe fallback to Room DB): ${e.message}")
         }
     }
 
@@ -136,7 +142,13 @@ object FirebaseManager {
      */
     fun getFirestoreLogsFlow(): Flow<List<DetectionLog>> = callbackFlow {
         try {
-            val db = dbInstance ?: FirebaseFirestore.getInstance()
+            val db = dbInstance ?: if (FirebaseApp.getApps(com.google.firebase.FirebaseApp.getInstance().applicationContext).isNotEmpty()) FirebaseFirestore.getInstance() else null
+            if (db == null) {
+                trySend(emptyList())
+                awaitClose {}
+                return@callbackFlow
+            }
+
             val subscription = db.collection("flood_alert_logs")
                 .orderBy("timestamp", Query.Direction.DESCENDING)
                 .limit(50)
@@ -172,7 +184,7 @@ object FirebaseManager {
                                         statusSummary = statusSummary
                                     )
                                 )
-                            } catch (parseEx: Exception) {
+                            } catch (parseEx: Throwable) {
                                 Log.e("FirebaseManager", "Error parsing Firestore log document: ${parseEx.message}")
                             }
                         }
@@ -183,7 +195,7 @@ object FirebaseManager {
             awaitClose {
                 subscription.remove()
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e("FirebaseManager", "Firestore callbackFlow exception: ${e.message}")
             trySend(emptyList())
             awaitClose {}

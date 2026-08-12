@@ -1,17 +1,22 @@
 package com.example.ui
 
-import android.graphics.Bitmap
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
+import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -28,16 +33,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
 import com.example.data.DetectionLog
 import com.example.data.LedState
 import com.example.data.Quadruple
@@ -61,8 +62,37 @@ fun AdminDashboardScreen(
     logs: List<DetectionLog>,
     modifier: Modifier = Modifier
 ) {
-    val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
+    val context = LocalContext.current
+    val audioPermissionState = rememberPermissionState(Manifest.permission.RECORD_AUDIO)
     val scrollState = rememberScrollState()
+
+    // Register Accelerometer Motion Listener when Motion Sensor Guard is armed
+    DisposableEffect(adminState.isMotionSensorArmed) {
+        if (adminState.isMotionSensorArmed) {
+            val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+            val accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+
+            val listener = object : SensorEventListener {
+                override fun onSensorChanged(event: SensorEvent?) {
+                    if (event != null && event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+                        val x = event.values[0]
+                        val y = event.values[1]
+                        val z = event.values[2]
+                        viewModel.processAccelerometerValues(x, y, z)
+                    }
+                }
+                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+            }
+
+            sensorManager?.registerListener(listener, accelerometer, SensorManager.SENSOR_DELAY_GAME)
+
+            onDispose {
+                sensorManager?.unregisterListener(listener)
+            }
+        } else {
+            onDispose {}
+        }
+    }
 
     Column(
         modifier = modifier
@@ -74,39 +104,32 @@ fun AdminDashboardScreen(
         // Top Header
         AdminDashboardHeader()
 
-        // Camera Permission Request Banner if not granted
-        if (!cameraPermissionState.status.isGranted) {
-            CameraPermissionCard(
-                onRequestPermission = { cameraPermissionState.launchPermissionRequest() }
+        // Audio Permission Card
+        if (!audioPermissionState.status.isGranted) {
+            AudioPermissionCard(
+                onRequestPermission = { audioPermissionState.launchPermissionRequest() }
             )
         }
 
-        // Camera Viewfinder & Manual Triggers
-        CameraViewfinderSection(
+        // Voice Command Control Hub
+        VoiceCommandSection(
             adminState = adminState,
-            isPermissionGranted = cameraPermissionState.status.isGranted,
-            onOpenCamera = {
-                if (cameraPermissionState.status.isGranted) {
-                    viewModel.openCamera()
-                } else {
-                    cameraPermissionState.launchPermissionRequest()
-                }
-            },
-            onStopCamera = { viewModel.stopCamera() },
-            onToggleDetectionMode = { viewModel.toggleDetectionMode(it) },
-            onSetSimulationState = { viewModel.setSimulationLedState(it) },
-            onCaptureClick = { bitmap -> viewModel.captureAndAnalyze(customBitmap = bitmap) },
-            onRequestPermission = { cameraPermissionState.launchPermissionRequest() }
+            isPermissionGranted = audioPermissionState.status.isGranted,
+            onVoiceResult = { spokenText -> viewModel.processVoiceCommand(spokenText) },
+            onSetSimulationState = { state -> viewModel.setSimulationLedState(state) },
+            onRequestPermission = { audioPermissionState.launchPermissionRequest() }
         )
 
-        // Camera Auto-Scan Schedule Trigger Slider
-        CameraSchedulerSection(
+        // Motion & Anti-Theft Sensor Guard
+        MotionSensorSection(
             adminState = adminState,
-            onToggleScheduler = { viewModel.toggleCameraScheduler(it) },
-            onIntervalChange = { viewModel.updateSchedulerInterval(it) }
+            onToggleArm = { armed -> viewModel.toggleMotionSensor(armed) },
+            onUpdateSensitivity = { sensitivity -> viewModel.updateMotionSensitivity(sensitivity) },
+            onSimulateMotion = { viewModel.triggerMotionAlarm("SIMULATED_PHYSICAL_MOVEMENT") },
+            onResetAlarm = { viewModel.resetMotionAlarm() }
         )
 
-        // Real-Time Optical Detection Result
+        // Real-Time System Status Card
         RealTimeAnalysisCard(
             adminState = adminState,
             latestLog = latestLog
@@ -139,27 +162,27 @@ fun AdminDashboardHeader() {
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(44.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.CameraAlt,
+                    imageVector = Icons.Default.RecordVoiceOver,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Admin Optical Camera Node",
+                    text = "Admin Voice Command Hub",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Live OpenCV LED Flood Sensor Station",
+                    text = "Hands-Free Voice Flood Alert & Emergency Siren System",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -181,7 +204,7 @@ fun AdminDashboardHeader() {
                             .background(StatusGreen)
                     )
                     Text(
-                        text = "ONLINE",
+                        text = "VOICE ACTIVE",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = StatusGreenText
@@ -193,11 +216,11 @@ fun AdminDashboardHeader() {
 }
 
 @Composable
-fun CameraPermissionCard(onRequestPermission: () -> Unit) {
+fun AudioPermissionCard(onRequestPermission: () -> Unit) {
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("camera_permission_card"),
+            .testTag("audio_permission_card"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.elevatedCardColors(
             containerColor = MaterialTheme.colorScheme.errorContainer
@@ -209,19 +232,19 @@ fun CameraPermissionCard(onRequestPermission: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.Warning,
+                imageVector = Icons.Default.MicOff,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onErrorContainer,
                 modifier = Modifier.size(32.dp)
             )
             Text(
-                text = "Camera Permission Required",
+                text = "Microphone Permission Required",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onErrorContainer
             )
             Text(
-                text = "Camera access is needed for live optical LED detection and OpenCV analysis.",
+                text = "Microphone access is needed to listen for voice alert commands like 'RED ALERT', 'BLUE WARNING', or 'GREEN NORMAL'.",
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.9f)
@@ -233,68 +256,58 @@ fun CameraPermissionCard(onRequestPermission: () -> Unit) {
                 ),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                Text("Grant Camera Permission", fontWeight = FontWeight.Bold)
+                Text("Grant Microphone Permission", fontWeight = FontWeight.Bold)
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CameraViewfinderSection(
+fun VoiceCommandSection(
     adminState: AdminUiState,
     isPermissionGranted: Boolean,
-    onOpenCamera: () -> Unit,
-    onStopCamera: () -> Unit,
-    onToggleDetectionMode: (Boolean) -> Unit,
+    onVoiceResult: (String) -> Unit,
     onSetSimulationState: (LedState) -> Unit,
-    onCaptureClick: (Bitmap?) -> Unit,
     onRequestPermission: () -> Unit
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "live_pulse")
-    val alphaAnim by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 0.3f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "live_alpha"
-    )
-
-    LaunchedEffect(isPermissionGranted) {
-        if (isPermissionGranted && !adminState.isCameraOpen) {
-            onOpenCamera()
-        }
-    }
-
-    DisposableEffect(adminState.isCameraOpen) {
-        onDispose {
-            try {
-                val cameraProvider = ProcessCameraProvider.getInstance(context).get()
-                cameraProvider.unbindAll()
-            } catch (e: Exception) {
-                // Ignore
+    // Speech Recognizer Launcher
+    val speechLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spokenTextList = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val spokenText = spokenTextList?.firstOrNull()
+            if (!spokenText.isNullOrEmpty()) {
+                onVoiceResult(spokenText)
             }
         }
     }
 
+    val infiniteTransition = rememberInfiniteTransition(label = "mic_pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.18f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_scale"
+    )
+
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("camera_viewfinder_card"),
+            .testTag("voice_command_section_card"),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Header Row with Camera Status Badge
+            // Header Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -305,12 +318,12 @@ fun CameraViewfinderSection(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Videocam,
+                        imageVector = Icons.Default.Mic,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "Optical Camera Viewfinder",
+                        text = "Voice Command Control Center",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -318,560 +331,224 @@ fun CameraViewfinderSection(
 
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = if (adminState.isCameraOpen) StatusGreenBg else MaterialTheme.colorScheme.surfaceVariant
+                    color = MaterialTheme.colorScheme.primaryContainer
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(if (adminState.isCameraOpen) StatusGreen else Color.Gray)
-                        )
-                        Text(
-                            text = if (adminState.isCameraOpen) "LIVE CAMERA STREAM" else "CAMERA STOPPED",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
-                            color = if (adminState.isCameraOpen) StatusGreenText else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Text(
+                        text = "SPEECH ENGINE READY",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                 }
             }
 
-            // Mode Selector Chips
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = adminState.isLiveDetectionMode,
-                    onClick = { onToggleDetectionMode(true) },
-                    label = { Text("📷 Live Camera Mode", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("live_camera_mode_chip"),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                )
-                FilterChip(
-                    selected = !adminState.isLiveDetectionMode,
-                    onClick = { onToggleDetectionMode(false) },
-                    label = { Text("🧪 Test Calibration", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("test_calibration_mode_chip"),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                )
-            }
-
-            // Camera Viewfinder Box with HUD Overlays
+            // Big Animated Microphone Action Button
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(260.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Color.Black)
-                    .border(
-                        2.dp,
-                        if (adminState.isCameraOpen) StatusGreen else MaterialTheme.colorScheme.outlineVariant,
-                        RoundedCornerShape(16.dp)
-                    ),
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(20.dp),
                 contentAlignment = Alignment.Center
             ) {
-                if (!isPermissionGranted) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                        modifier = Modifier.padding(16.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CameraAlt,
-                            contentDescription = null,
-                            tint = Color.White.copy(alpha = 0.6f),
-                            modifier = Modifier.size(44.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Camera Permission Required",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Button(
-                            onClick = onRequestPermission,
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("Grant Camera Permission")
-                        }
-                    }
-                } else if (adminState.isCameraOpen) {
-                    AndroidView(
-                        factory = { ctx ->
-                            PreviewView(ctx).apply {
-                                scaleType = PreviewView.ScaleType.FILL_CENTER
-                                previewViewRef = this
-
-                                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                                cameraProviderFuture.addListener({
-                                    try {
-                                        val cameraProvider = cameraProviderFuture.get()
-                                        val preview = Preview.Builder().build().apply {
-                                            setSurfaceProvider(surfaceProvider)
-                                        }
-                                        val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-                                        cameraProvider.unbindAll()
-                                        cameraProvider.bindToLifecycle(
-                                            lifecycleOwner,
-                                            cameraSelector,
-                                            preview
-                                        )
-                                    } catch (exc: Exception) {
-                                        android.util.Log.e("AdminCameraViewfinder", "Use case binding failed", exc)
-                                    }
-                                }, ContextCompat.getMainExecutor(ctx))
-                            }
-                        },
-                        modifier = Modifier.matchParentSize()
-                    )
-
-                    // Live Stream HUD Overlay
-                    Column(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // Top HUD Bar
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Surface(
-                                color = Color.Black.copy(alpha = 0.65f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.Red.copy(alpha = alphaAnim))
-                                    )
-                                    Text(
-                                        text = "LIVE FEED",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
-                                }
-                            }
-
-                            Surface(
-                                color = Color.Black.copy(alpha = 0.65f),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(
-                                    text = if (adminState.isLiveDetectionMode) "OPENCV LIVE CAMERA" else "TEST CALIBRATION",
-                                    color = Color(0xFF38BDF8),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
-                        // Center Targeting Reticle ROI
-                        Box(
-                            modifier = Modifier
-                                .size(130.dp)
-                                .align(Alignment.CenterHorizontally)
-                                .border(1.5.dp, Color(0xFF38BDF8).copy(alpha = 0.8f), RoundedCornerShape(12.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.FilterCenterFocus,
-                                contentDescription = null,
-                                tint = Color(0xFF38BDF8),
-                                modifier = Modifier.size(36.dp)
-                            )
-                            Text(
-                                text = "LED SENSOR ROI",
-                                color = Color.White.copy(alpha = 0.85f),
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .padding(bottom = 4.dp)
-                            )
-                        }
-
-                        // Bottom HUD Info Bar
-                        val currentResult = adminState.latestAnalysisResult
-                        Surface(
-                            color = Color.Black.copy(alpha = 0.75f),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                                    .fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    val ledColor = when (currentResult?.detectedState) {
-                                        LedState.GREEN -> StatusGreen
-                                        LedState.BLUE -> StatusBlue
-                                        LedState.RED -> StatusRed
-                                        else -> Color.Gray
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .size(10.dp)
-                                            .clip(CircleShape)
-                                            .background(ledColor)
-                                    )
-                                    Text(
-                                        text = "DETECTION: ${currentResult?.detectedState?.name ?: "GREEN"}",
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp
-                                    )
-                                }
-
-                                Text(
-                                    text = "Conf: ${((currentResult?.confidence ?: 0.95f) * 100).toInt()}%",
-                                    color = Color.White.copy(alpha = 0.9f),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    val processedBitmap = adminState.latestAnalysisResult?.processedBitmap
-                    if (processedBitmap != null) {
-                        Image(
-                            bitmap = processedBitmap.asImageBitmap(),
-                            contentDescription = "OpenCV Processed Frame",
-                            modifier = Modifier.matchParentSize()
-                        )
-                    } else {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.VideocamOff,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.5f),
-                                modifier = Modifier.size(48.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Camera Stopped • Tap 'Open Camera' to view stream",
-                                color = Color.White.copy(alpha = 0.7f),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    }
-                }
-
-                if (adminState.isAnalyzing) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .background(Color.Black.copy(alpha = 0.65f)),
+                        modifier = Modifier.size(90.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(color = Color.White)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Analyzing Optical Frame Colors...",
-                                color = Color.White,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold
+                        // Pulsing outer aura
+                        Box(
+                            modifier = Modifier
+                                .size(88.dp)
+                                .scale(pulseScale)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                        )
+
+                        // Main microphone FAB
+                        IconButton(
+                            onClick = {
+                                if (isPermissionGranted) {
+                                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Say 'RED ALERT', 'BLUE WARNING', or 'GREEN NORMAL'")
+                                    }
+                                    try {
+                                        speechLauncher.launch(intent)
+                                    } catch (e: Exception) {
+                                        onVoiceResult("Speech Recognition unavailable")
+                                    }
+                                } else {
+                                    onRequestPermission()
+                                }
+                            },
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
+                                .testTag("speak_voice_command_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "Tap to speak voice command",
+                                tint = Color.White,
+                                modifier = Modifier.size(36.dp)
                             )
                         }
                     }
+
+                    Text(
+                        text = "TAP MICROPHONE TO SPEAK COMMAND",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Text(
+                        text = adminState.voiceStatusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
-            // Quick Test Trigger Buttons (Only shown in Test Calibration Mode)
-            if (!adminState.isLiveDetectionMode) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant
+            // Speech Log Display Box
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .padding(10.dp)
-                            .fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
+                    Icon(
+                        imageVector = Icons.Default.Hearing,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Test Sensor Trigger (Simulate Specific Alert Colors):",
+                            text = "LAST RECOGNIZED SPEECH:",
                             style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.secondary
                         )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Button(
-                                onClick = { onSetSimulationState(LedState.GREEN) },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = StatusGreen),
-                                contentPadding = PaddingValues(vertical = 4.dp)
-                            ) {
-                                Text("Green", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Button(
-                                onClick = { onSetSimulationState(LedState.BLUE) },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = StatusBlue),
-                                contentPadding = PaddingValues(vertical = 4.dp)
-                            ) {
-                                Text("Blue", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Button(
-                                onClick = { onSetSimulationState(LedState.RED) },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = StatusRed),
-                                contentPadding = PaddingValues(vertical = 4.dp)
-                            ) {
-                                Text("Red", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
+                        Text(
+                            text = "\"${adminState.lastRecognizedSpeech}\"",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
                     }
                 }
             }
 
-            // Camera Controls (Open Camera, Stop Camera)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = onOpenCamera,
-                    enabled = !adminState.isCameraOpen && !adminState.isAnalyzing,
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("open_camera_button"),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Open Camera", fontWeight = FontWeight.Bold)
-                }
+            HorizontalDivider()
 
-                Button(
-                    onClick = onStopCamera,
-                    enabled = adminState.isCameraOpen && !adminState.isAnalyzing,
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("stop_camera_button"),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Stop,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Stop Camera", fontWeight = FontWeight.Bold)
-                }
-            }
+            // Voice Command Cheat Sheet & Quick Simulation Chips
+            Text(
+                text = "Voice Command Cheat Sheet & Instant Simulators:",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
 
-            // Instant Capture & Analyze Button
-            OutlinedButton(
-                onClick = {
-                    val bitmap = previewViewRef?.bitmap
-                    onCaptureClick(bitmap)
-                },
-                enabled = !adminState.isAnalyzing,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("capture_analyze_button"),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Camera,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // RED COMMAND
+                CommandGuideCard(
+                    color = StatusRed,
+                    bgColor = StatusRedBg,
+                    title = "🔴 RED ALERT / EVACUATE",
+                    phrase = "\"Red Alert\" or \"Evacuate\" or \"Flood Danger\"",
+                    effect = "Triggers Emergency Siren & Instant Evacuation Broadcast",
+                    onClick = { onSetSimulationState(LedState.RED) },
+                    testTag = "quick_sim_red_button"
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Capture & Run OpenCV LED Scan", fontWeight = FontWeight.Bold)
+
+                // BLUE COMMAND
+                CommandGuideCard(
+                    color = StatusBlue,
+                    bgColor = StatusBlueBg,
+                    title = "🔵 BLUE WARNING / WATER RISING",
+                    phrase = "\"Blue Warning\" or \"Water Rising\" or \"Caution\"",
+                    effect = "Triggers Warning Alert & Preparation Mobile Push",
+                    onClick = { onSetSimulationState(LedState.BLUE) },
+                    testTag = "quick_sim_blue_button"
+                )
+
+                // GREEN COMMAND
+                CommandGuideCard(
+                    color = StatusGreen,
+                    bgColor = StatusGreenBg,
+                    title = "🟢 GREEN NORMAL / CLEAR",
+                    phrase = "\"Green Normal\" or \"Safe\" or \"Clear\" or \"Reset\"",
+                    effect = "Resets Alarm & Sets Village Status to Safe",
+                    onClick = { onSetSimulationState(LedState.GREEN) },
+                    testTag = "quick_sim_green_button"
+                )
             }
         }
     }
 }
 
 @Composable
-fun CameraSchedulerSection(
-    adminState: AdminUiState,
-    onToggleScheduler: (Boolean) -> Unit,
-    onIntervalChange: (Int) -> Unit
+fun CommandGuideCard(
+    color: Color,
+    bgColor: Color,
+    title: String,
+    phrase: String,
+    effect: String,
+    onClick: () -> Unit,
+    testTag: String
 ) {
-    ElevatedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("camera_scheduler_card"),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = bgColor,
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        Row(
+            modifier = Modifier
+                .padding(12.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Timer,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Column {
-                        Text(
-                            text = "Auto Camera Schedule Trigger",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Slide to adjust open/close analysis timer",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Switch(
-                    checked = adminState.isSchedulerEnabled,
-                    onCheckedChange = onToggleScheduler,
-                    modifier = Modifier.testTag("scheduler_toggle_switch")
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = color
+                )
+                Text(
+                    text = "Say: $phrase",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = color.copy(alpha = 0.9f)
+                )
+                Text(
+                    text = effect,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
-            HorizontalDivider()
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Camera Scan Frequency:",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Text(
-                            text = "Every ${adminState.schedulerIntervalSeconds} sec",
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
-
-                // Interval Slider
-                Slider(
-                    value = adminState.schedulerIntervalSeconds.toFloat(),
-                    onValueChange = { onIntervalChange(it.toInt()) },
-                    valueRange = 5f..120f,
-                    steps = 22,
-                    enabled = adminState.isSchedulerEnabled,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("camera_scheduler_slider")
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("5s (Fast)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("30s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("120s (Power Save)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = if (adminState.isSchedulerEnabled) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.fillMaxWidth()
+            Button(
+                onClick = onClick,
+                colors = ButtonDefaults.buttonColors(containerColor = color),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                modifier = Modifier.testTag(testTag)
             ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = if (adminState.isSchedulerEnabled) Icons.Default.Autorenew else Icons.Default.PauseCircle,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text(
-                        text = adminState.cameraStatusText,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                }
+                Text("Simulate", fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -918,7 +595,7 @@ fun RealTimeAnalysisCard(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Last OpenCV Optical Analysis Result",
+                text = "Current Village Alert System State",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -956,7 +633,7 @@ fun RealTimeAnalysisCard(
                         color = ledColor.copy(alpha = 0.15f)
                     ) {
                         Text(
-                            text = "LED DETECTED: ${ledState.name}",
+                            text = "SYSTEM ALERT: ${ledState.name}",
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.labelMedium,
                             color = ledColor,
@@ -968,10 +645,10 @@ fun RealTimeAnalysisCard(
 
                     Text(
                         text = when (ledState) {
-                            LedState.GREEN -> "GREEN - Normal (Everything OK)"
+                            LedState.GREEN -> "GREEN - Normal (Everything Safe)"
                             LedState.BLUE -> "BLUE - Warning Alert"
                             LedState.RED -> "RED - DANGER EVACUATE NOW!"
-                            LedState.UNKNOWN -> "SENSOR UNKNOWN"
+                            LedState.UNKNOWN -> "UNKNOWN STATUS"
                         },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.ExtraBold,
@@ -979,7 +656,7 @@ fun RealTimeAnalysisCard(
                     )
 
                     Text(
-                        text = latestLog?.statusSummary ?: "Normal LED status detected.",
+                        text = latestLog?.statusSummary ?: "Normal status active. All clear.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1000,7 +677,7 @@ fun SafetyRecommendationsCard(
             StatusGreenBg,
             listOf(
                 "Everything is okay. No immediate flood threat detected.",
-                "Routine camera monitoring active across flood detection nodes.",
+                "Voice alert listener active across river monitoring stations.",
                 "Keep emergency contacts saved on your mobile device."
             )
         )
@@ -1027,12 +704,12 @@ fun SafetyRecommendationsCard(
             )
         )
         LedState.UNKNOWN -> Quadruple(
-            "SENSOR OFFLINE RECOMMENDATIONS",
+            "STATUS UNKNOWN RECOMMENDATIONS",
             Color.Gray,
             Color(0xFFF1F5F9),
             listOf(
-                "Camera feed obstructed or re-calibrating.",
-                "Check physical camera lens and optical LED sensor housing."
+                "Voice dispatch system re-calibrating.",
+                "Verify microphone signal and station connection."
             )
         )
     }
@@ -1090,6 +767,222 @@ fun SafetyRecommendationsCard(
                         color = statusColor
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun MotionSensorSection(
+    adminState: AdminUiState,
+    onToggleArm: (Boolean) -> Unit,
+    onUpdateSensitivity: (Float) -> Unit,
+    onSimulateMotion: () -> Unit,
+    onResetAlarm: () -> Unit
+) {
+    val isArmed = adminState.isMotionSensorArmed
+    val isDetected = adminState.isMotionDetected
+
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("motion_sensor_card"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = if (isDetected) StatusRedBg else MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Header with Switch
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isDetected) StatusRed
+                                else if (isArmed) StatusGreen
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isDetected) Icons.Default.Vibration else Icons.Default.Security,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = "Motion & Anti-Theft Guard",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (isArmed) "Accelerometer Active • Detects Movement" else "Sensor Disarmed • Standby",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Switch(
+                    checked = isArmed,
+                    onCheckedChange = onToggleArm,
+                    modifier = Modifier.testTag("arm_motion_guard_switch")
+                )
+            }
+
+            // Alert Banner if Motion Detected
+            if (isDetected) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = StatusRed,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = Color.White
+                            )
+                            Text(
+                                text = "🚨 TAMPER / PHONE MOVEMENT DETECTED!",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                        }
+
+                        Text(
+                            text = "The device was physically moved or shaken while armed. High-volume emergency alarm is sounding!",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Button(
+                            onClick = onResetAlarm,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.testTag("silence_motion_alarm_button")
+                        ) {
+                            Text(
+                                text = "🔕 SILENCE & RESET ALARM",
+                                fontWeight = FontWeight.Bold,
+                                color = StatusRed
+                            )
+                        }
+                    }
+                }
+            } else {
+                // Live Status Box
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isArmed) StatusGreenBg else MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sensors,
+                            contentDescription = null,
+                            tint = if (isArmed) StatusGreenText else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = adminState.motionSensorStatusText,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isArmed) StatusGreenText else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (isArmed) {
+                                Text(
+                                    text = "Current Movement Delta: ${String.format("%.2f", adminState.lastAccelerationDelta)} m/s² (Threshold: ${String.format("%.1f", adminState.motionSensitivity)} m/s²)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = StatusGreenText.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider()
+
+            // Motion Sensitivity Slider
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Motion Sensitivity Threshold:",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = when {
+                            adminState.motionSensitivity <= 2.5f -> "High (${String.format("%.1f", adminState.motionSensitivity)} m/s²)"
+                            adminState.motionSensitivity <= 4.5f -> "Medium (${String.format("%.1f", adminState.motionSensitivity)} m/s²)"
+                            else -> "Low (${String.format("%.1f", adminState.motionSensitivity)} m/s²)"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Slider(
+                    value = adminState.motionSensitivity,
+                    onValueChange = onUpdateSensitivity,
+                    valueRange = 1.5f..7.0f,
+                    modifier = Modifier.testTag("motion_sensitivity_slider")
+                )
+            }
+
+            // Quick Simulate Shake Button
+            OutlinedButton(
+                onClick = onSimulateMotion,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("simulate_motion_button"),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Vibration,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("⚡ Simulate Phone Movement / Shake Alarm", fontWeight = FontWeight.Bold)
             }
         }
     }

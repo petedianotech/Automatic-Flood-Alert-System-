@@ -50,25 +50,20 @@ jobs:
             rm -f app/my-upload-key.jks
           fi
 
-      - name: Compile and Build Signed APK
+      - name: Compile and Build Signed Release APK
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-          KEYSTORE_PATH: my-upload-key.jks
+          KEYSTORE_PATH: app/my-upload-key.jks
           STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
-          if [ -f "app/my-upload-key.jks" ]; then
-            echo "Release key configured and valid. Compiling Release Signed APK..."
-            gradle :app:assembleRelease --stacktrace --no-daemon
-          else
-            echo "No valid Release key found. Compiling Debug Signed APK..."
-            gradle :app:assembleDebug --stacktrace --no-daemon
-          fi
+          echo "Compiling Release Signed APK..."
+          gradle :app:assembleRelease --stacktrace --no-daemon
 
-      - name: Upload Signed Installable APK
+      - name: Upload Signed Installable Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: Automatic-Flood-Alert-System-Signed-APK
-          path: app/build/outputs/apk/**/*.apk
+          name: Automatic-Flood-Alert-System-Release-APK
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error

@@ -25,11 +25,21 @@ android {
 
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      val envKsPath = System.getenv("KEYSTORE_PATH")
+      val customFile = when {
+        !envKsPath.isNullOrEmpty() && file(envKsPath).exists() -> file(envKsPath)
+        file("${rootDir}/app/my-upload-key.jks").exists() -> file("${rootDir}/app/my-upload-key.jks")
+        file("${rootDir}/my-upload-key.jks").exists() -> file("${rootDir}/my-upload-key.jks")
+        else -> file("${rootDir}/debug.keystore")
+      }
+
+      storeFile = customFile
+      val pass = System.getenv("STORE_PASSWORD")
+      storePassword = if (!pass.isNullOrEmpty()) pass else "android"
+      val alias = System.getenv("KEY_ALIAS")
+      keyAlias = if (!alias.isNullOrEmpty()) alias else if (customFile.name == "debug.keystore") "androiddebugkey" else "upload"
+      val keyPass = System.getenv("KEY_PASSWORD")
+      keyPassword = if (!keyPass.isNullOrEmpty()) keyPass else "android"
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
