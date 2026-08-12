@@ -93,6 +93,8 @@ fun AdminDashboardScreen(
                 }
             },
             onStopCamera = { viewModel.stopCamera() },
+            onToggleDetectionMode = { viewModel.toggleDetectionMode(it) },
+            onSetSimulationState = { viewModel.setSimulationLedState(it) },
             onCaptureClick = { bitmap -> viewModel.captureAndAnalyze(customBitmap = bitmap) },
             onRequestPermission = { cameraPermissionState.launchPermissionRequest() }
         )
@@ -237,18 +239,38 @@ fun CameraPermissionCard(onRequestPermission: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CameraViewfinderSection(
     adminState: AdminUiState,
     isPermissionGranted: Boolean,
     onOpenCamera: () -> Unit,
     onStopCamera: () -> Unit,
+    onToggleDetectionMode: (Boolean) -> Unit,
+    onSetSimulationState: (LedState) -> Unit,
     onCaptureClick: (Bitmap?) -> Unit,
     onRequestPermission: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "live_pulse")
+    val alphaAnim by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "live_alpha"
+    )
+
+    LaunchedEffect(isPermissionGranted) {
+        if (isPermissionGranted && !adminState.isCameraOpen) {
+            onOpenCamera()
+        }
+    }
 
     DisposableEffect(adminState.isCameraOpen) {
         onDispose {
@@ -288,7 +310,7 @@ fun CameraViewfinderSection(
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "Camera Feed",
+                        text = "Optical Camera Viewfinder",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -310,7 +332,7 @@ fun CameraViewfinderSection(
                                 .background(if (adminState.isCameraOpen) StatusGreen else Color.Gray)
                         )
                         Text(
-                            text = if (adminState.isCameraOpen) "CAMERA ACTIVE" else "CAMERA STOPPED",
+                            text = if (adminState.isCameraOpen) "LIVE CAMERA STREAM" else "CAMERA STOPPED",
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp,
                             color = if (adminState.isCameraOpen) StatusGreenText else MaterialTheme.colorScheme.onSurfaceVariant
@@ -319,11 +341,42 @@ fun CameraViewfinderSection(
                 }
             }
 
-            // Viewfinder Container
+            // Mode Selector Chips
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = adminState.isLiveDetectionMode,
+                    onClick = { onToggleDetectionMode(true) },
+                    label = { Text("📷 Live Camera Mode", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("live_camera_mode_chip"),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                )
+                FilterChip(
+                    selected = !adminState.isLiveDetectionMode,
+                    onClick = { onToggleDetectionMode(false) },
+                    label = { Text("🧪 Test Calibration", fontWeight = FontWeight.Bold, fontSize = 12.sp) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("test_calibration_mode_chip"),
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                )
+            }
+
+            // Camera Viewfinder Box with HUD Overlays
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(240.dp)
+                    .height(260.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(Color.Black)
                     .border(
@@ -357,7 +410,7 @@ fun CameraViewfinderSection(
                             onClick = onRequestPermission,
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text("Grant Permission")
+                            Text("Grant Camera Permission")
                         }
                     }
                 } else if (adminState.isCameraOpen) {
@@ -389,6 +442,130 @@ fun CameraViewfinderSection(
                         },
                         modifier = Modifier.matchParentSize()
                     )
+
+                    // Live Stream HUD Overlay
+                    Column(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        // Top HUD Bar
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                color = Color.Black.copy(alpha = 0.65f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Red.copy(alpha = alphaAnim))
+                                    )
+                                    Text(
+                                        text = "LIVE FEED",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                color = Color.Black.copy(alpha = 0.65f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = if (adminState.isLiveDetectionMode) "OPENCV LIVE CAMERA" else "TEST CALIBRATION",
+                                    color = Color(0xFF38BDF8),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Center Targeting Reticle ROI
+                        Box(
+                            modifier = Modifier
+                                .size(130.dp)
+                                .align(Alignment.CenterHorizontally)
+                                .border(1.5.dp, Color(0xFF38BDF8).copy(alpha = 0.8f), RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FilterCenterFocus,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Text(
+                                text = "LED SENSOR ROI",
+                                color = Color.White.copy(alpha = 0.85f),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(bottom = 4.dp)
+                            )
+                        }
+
+                        // Bottom HUD Info Bar
+                        val currentResult = adminState.latestAnalysisResult
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.75f),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    val ledColor = when (currentResult?.detectedState) {
+                                        LedState.GREEN -> StatusGreen
+                                        LedState.BLUE -> StatusBlue
+                                        LedState.RED -> StatusRed
+                                        else -> Color.Gray
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(ledColor)
+                                    )
+                                    Text(
+                                        text = "DETECTION: ${currentResult?.detectedState?.name ?: "GREEN"}",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
+                                    )
+                                }
+
+                                Text(
+                                    text = "Conf: ${((currentResult?.confidence ?: 0.95f) * 100).toInt()}%",
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
                 } else {
                     val processedBitmap = adminState.latestAnalysisResult?.processedBitmap
                     if (processedBitmap != null) {
@@ -410,7 +587,7 @@ fun CameraViewfinderSection(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Camera Off • Tap 'Open Camera' to start feed",
+                                text = "Camera Stopped • Tap 'Open Camera' to view stream",
                                 color = Color.White.copy(alpha = 0.7f),
                                 style = MaterialTheme.typography.bodyMedium
                             )
@@ -429,7 +606,7 @@ fun CameraViewfinderSection(
                             CircularProgressIndicator(color = Color.White)
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Analyzing LED Optical Frame...",
+                                text = "Analyzing Optical Frame Colors...",
                                 color = Color.White,
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold
@@ -439,12 +616,61 @@ fun CameraViewfinderSection(
                 }
             }
 
-            // Camera Manual Triggers (Open Camera, Stop Camera)
+            // Quick Test Trigger Buttons (Only shown in Test Calibration Mode)
+            if (!adminState.isLiveDetectionMode) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .padding(10.dp)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Test Sensor Trigger (Simulate Specific Alert Colors):",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Button(
+                                onClick = { onSetSimulationState(LedState.GREEN) },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = StatusGreen),
+                                contentPadding = PaddingValues(vertical = 4.dp)
+                            ) {
+                                Text("Green", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = { onSetSimulationState(LedState.BLUE) },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = StatusBlue),
+                                contentPadding = PaddingValues(vertical = 4.dp)
+                            ) {
+                                Text("Blue", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = { onSetSimulationState(LedState.RED) },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = StatusRed),
+                                contentPadding = PaddingValues(vertical = 4.dp)
+                            ) {
+                                Text("Red", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Camera Controls (Open Camera, Stop Camera)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Open Camera Button
                 Button(
                     onClick = onOpenCamera,
                     enabled = !adminState.isCameraOpen && !adminState.isAnalyzing,
@@ -465,7 +691,6 @@ fun CameraViewfinderSection(
                     Text("Open Camera", fontWeight = FontWeight.Bold)
                 }
 
-                // Stop Camera Button
                 Button(
                     onClick = onStopCamera,
                     enabled = adminState.isCameraOpen && !adminState.isAnalyzing,

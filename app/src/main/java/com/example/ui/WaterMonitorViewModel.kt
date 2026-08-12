@@ -34,8 +34,9 @@ data class AdminUiState(
     val schedulerIntervalSeconds: Int = 15,
     val countdownSeconds: Int = 15,
     val isAnalyzing: Boolean = false,
-    val isCameraOpen: Boolean = false,
-    val cameraStatusText: String = "Automated System Active • Camera Closed (Standby)",
+    val isCameraOpen: Boolean = true,
+    val isLiveDetectionMode: Boolean = true,
+    val cameraStatusText: String = "Live Camera Feed Active • Real-Time Detection",
     val activeSimulationState: LedState = LedState.GREEN,
     val latestAnalysisResult: OpenCvAnalysisResult? = null,
     val systemHealth: String = "Flood Node #01 Online • Signal: 98% • Battery: 94%",
@@ -130,17 +131,30 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
         _adminState.update {
             it.copy(
                 isCameraOpen = false,
-                cameraStatusText = "Camera Closed • Standby Mode"
+                cameraStatusText = "Camera Stopped • Standby Mode"
             )
         }
+    }
+
+    fun toggleDetectionMode(isLiveMode: Boolean) {
+        _adminState.update {
+            it.copy(
+                isLiveDetectionMode = isLiveMode,
+                cameraStatusText = if (isLiveMode) "Live Optical Camera Mode Active" else "Test Calibration Mode Active"
+            )
+        }
+    }
+
+    fun setSimulationLedState(state: LedState) {
+        _adminState.update { it.copy(activeSimulationState = state) }
+        captureAndAnalyze(forcedState = state)
     }
 
     fun toggleCameraScheduler(enabled: Boolean) {
         _adminState.update {
             it.copy(
                 isSchedulerEnabled = enabled,
-                isCameraOpen = false,
-                cameraStatusText = if (enabled) "Camera Scheduler Active" else "Scheduler Paused • Manual Mode"
+                cameraStatusText = if (enabled) "Camera Auto-Scheduler Active" else "Scheduler Paused • Manual Mode"
             )
         }
         if (enabled) {
@@ -167,8 +181,7 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
                 _adminState.update {
                     it.copy(
                         countdownSeconds = remaining,
-                        isCameraOpen = false,
-                        cameraStatusText = "Camera Closed (Standby) • Next scan in ${remaining}s"
+                        cameraStatusText = if (it.isCameraOpen) "Camera Live • Next scan in ${remaining}s" else "Camera Standby • Next scan in ${remaining}s"
                     )
                 }
                 while (remaining > 0 && _adminState.value.isSchedulerEnabled) {
@@ -177,30 +190,26 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
                     _adminState.update {
                         it.copy(
                             countdownSeconds = remaining,
-                            cameraStatusText = "Camera Closed (Standby) • Next scan in ${remaining}s"
+                            cameraStatusText = if (it.isCameraOpen) "Camera Live • Next scan in ${remaining}s" else "Camera Standby • Next scan in ${remaining}s"
                         )
                     }
                 }
 
                 if (_adminState.value.isSchedulerEnabled) {
-                    // Open camera shutter for capture
                     _adminState.update {
                         it.copy(
-                            isCameraOpen = true,
                             isAnalyzing = true,
-                            cameraStatusText = "CAMERA OPEN • Capturing Frame & Analyzing..."
+                            cameraStatusText = "CAMERA LIVE • Capturing Frame & Analyzing..."
                         )
                     }
-                    delay(800) // Shutter exposure simulation
+                    delay(400)
 
                     performAnalysis(triggerType = "SCHEDULED")
 
-                    // Close camera shutter
                     _adminState.update {
                         it.copy(
-                            isCameraOpen = false,
                             isAnalyzing = false,
-                            cameraStatusText = "Camera Closed • Detection Logged"
+                            cameraStatusText = "Camera Live • Scan Logged"
                         )
                     }
                 }
@@ -212,18 +221,28 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
         viewModelScope.launch {
             _adminState.update {
                 it.copy(
-                    isCameraOpen = true,
                     isAnalyzing = true,
-                    cameraStatusText = "CAMERA OPEN • Manual Scan Capturing..."
+                    cameraStatusText = "CAMERA LIVE • Manual Scan Capturing..."
                 )
             }
-            delay(500)
-            performAnalysis(forcedState = forcedState ?: _adminState.value.activeSimulationState, customBitmap = customBitmap, triggerType = "MANUAL")
+            delay(300)
+
+            val targetForcedState = if (_adminState.value.isLiveDetectionMode && customBitmap != null) {
+                null // Real pixel HSV color detection on physical camera bitmap
+            } else {
+                forcedState ?: _adminState.value.activeSimulationState
+            }
+
+            performAnalysis(
+                forcedState = targetForcedState,
+                customBitmap = customBitmap,
+                triggerType = "MANUAL"
+            )
+
             _adminState.update {
                 it.copy(
-                    isCameraOpen = false,
                     isAnalyzing = false,
-                    cameraStatusText = "Camera Closed • Manual Scan Saved"
+                    cameraStatusText = "Camera Live • Manual Scan Saved"
                 )
             }
         }
