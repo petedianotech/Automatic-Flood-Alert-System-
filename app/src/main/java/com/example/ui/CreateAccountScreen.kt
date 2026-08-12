@@ -250,6 +250,33 @@ fun CreateAccountScreen(
                             fontWeight = FontWeight.Bold
                         )
                     }
+
+                    // Temporary Development Button to Access Admin Dashboard
+                    OutlinedButton(
+                        onClick = {
+                            onAccountCreated("Dev Admin", "Dzenje Station", "ADMIN")
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("dev_admin_shortcut_button"),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.tertiary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AdminPanelSettings,
+                            contentDescription = "Admin Dev Shortcut",
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "🛠️ DEV: Direct Admin Dashboard Access",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 

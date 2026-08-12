@@ -1,15 +1,11 @@
 package com.example.ui
 
-import com.example.engine.OpenCvAnalysisResult
-import com.example.ui.theme.StatusGreen
-import com.example.ui.theme.StatusGreenBg
-import com.example.ui.theme.StatusGreenText
-import com.example.ui.theme.StatusRed
-import com.example.ui.theme.StatusYellow
-
 import android.graphics.Bitmap
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -19,88 +15,43 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Autorenew
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Sensors
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Badge
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.ContextCompat
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
-import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.isGranted
-import com.google.accompanist.permissions.rememberPermissionState
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import com.example.data.DetectionLog
 import com.example.data.LedState
+import com.example.engine.OpenCvAnalysisResult
 import com.example.ui.theme.StatusGreen
+import com.example.ui.theme.StatusGreenBg
+import com.example.ui.theme.StatusGreenText
 import com.example.ui.theme.StatusRed
 import com.example.ui.theme.StatusYellow
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun AdminDashboardScreen(
     viewModel: WaterMonitorViewModel,
@@ -109,207 +60,181 @@ fun AdminDashboardScreen(
     logs: List<DetectionLog>,
     modifier: Modifier = Modifier
 ) {
-    val firestoreLogs by viewModel.firestoreLogs.collectAsStateWithLifecycle()
-    var selectedSourceTab by remember { mutableStateOf(0) } // 0 = Room Local, 1 = Cloud Firestore
-    val activeLogs = if (selectedSourceTab == 0) logs else firestoreLogs
+    val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
+    val scrollState = rememberScrollState()
 
-    LazyColumn(
+    Column(
         modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. System Node Header
-        item {
-            SystemHealthHeaderCard(healthInfo = adminState.systemHealth)
-        }
+        // Top Header
+        AdminDashboardHeader()
 
-        // 2. Camera Viewfinder & Manual 'Capture & Analyze' Button
-        item {
-            CameraViewfinderCard(
-                adminState = adminState,
-                onCaptureClick = { bitmap -> viewModel.captureAndAnalyze(customBitmap = bitmap) },
-                onSimulateShiftClick = { viewModel.cycleSimulationLedState() }
+        // Camera Permission Request Banner if not granted
+        if (!cameraPermissionState.status.isGranted) {
+            CameraPermissionCard(
+                onRequestPermission = { cameraPermissionState.launchPermissionRequest() }
             )
         }
 
-        // 3. Camera Scheduler Toggle Card
-        item {
-            CameraSchedulerCard(
-                isSchedulerEnabled = adminState.isSchedulerEnabled,
-                intervalSeconds = adminState.schedulerIntervalSeconds,
-                countdownSeconds = adminState.countdownSeconds,
-                onToggleScheduler = { viewModel.toggleCameraScheduler(it) },
-                onIntervalChange = { viewModel.updateSchedulerInterval(it) }
-            )
-        }
-
-        // 4. Real-Time Status Card
-        item {
-            RealTimeStatusCard(
-                latestLog = latestLog,
-                lastCaptureTimeText = adminState.lastCaptureTimeText,
-                adminState = adminState
-            )
-        }
-
-        // 4b. Broadcast Emergency Alert Notification Card
-        item {
-            BroadcastNotificationCard(
-                onSendBroadcast = { title, message ->
-                    viewModel.sendBroadcastNotification(title, message)
+        // Camera Viewfinder & Manual Triggers
+        CameraViewfinderSection(
+            adminState = adminState,
+            isPermissionGranted = cameraPermissionState.status.isGranted,
+            onOpenCamera = {
+                if (cameraPermissionState.status.isGranted) {
+                    viewModel.openCamera()
+                } else {
+                    cameraPermissionState.launchPermissionRequest()
                 }
-            )
-        }
+            },
+            onStopCamera = { viewModel.stopCamera() },
+            onCaptureClick = { bitmap -> viewModel.captureAndAnalyze(customBitmap = bitmap) },
+            onRequestPermission = { cameraPermissionState.launchPermissionRequest() }
+        )
 
-        // 5. Detection Logs History
-        item {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Detection Logs History",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (selectedSourceTab == 0 && logs.isNotEmpty()) {
-                        IconButton(
-                            onClick = { viewModel.clearLogs() },
-                            modifier = Modifier.testTag("clear_logs_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Clear Logs",
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-                }
-
-                // Data Source Selection Chips
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf("Local Room (SQLite)" to 0, "Cloud Firestore (Sync)" to 1).forEach { (label, index) ->
-                        val isSelected = selectedSourceTab == index
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { selectedSourceTab = index }
-                        ) {
-                            Text(
-                                text = label,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        if (activeLogs.isEmpty()) {
-            item {
-                OutlinedCard(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = null,
-                            modifier = Modifier.size(36.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = if (selectedSourceTab == 0) "No local logs recorded yet" else "No Firestore cloud logs synced yet. Perform scans to populate Firestore!",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
-                }
-            }
-        } else {
-            items(activeLogs.take(15)) { log ->
-                DetectionLogItemRow(log = log)
-            }
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(32.dp))
-        }
+        // Real-Time Optical Detection Result
+        RealTimeAnalysisCard(
+            adminState = adminState,
+            latestLog = latestLog
+        )
     }
 }
 
 @Composable
-fun SystemHealthHeaderCard(healthInfo: String) {
+fun AdminDashboardHeader() {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("system_health_card"),
+            .testTag("admin_dashboard_header"),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+        ),
+        shape = RoundedCornerShape(16.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(12.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
-                    .background(StatusGreen)
-            )
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CameraAlt,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Flood Alert Node #01 Admin Panel",
-                    style = MaterialTheme.typography.titleSmall,
+                    text = "Admin Optical Camera Node",
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = healthInfo,
+                    text = "Live OpenCV River Monitoring Station",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Icon(
-                imageVector = Icons.Default.Sensors,
-                contentDescription = "Sensor Node",
-                tint = MaterialTheme.colorScheme.primary
-            )
+
+            Surface(
+                shape = CircleShape,
+                color = StatusGreenBg
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(StatusGreen)
+                    )
+                    Text(
+                        text = "ONLINE",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = StatusGreenText
+                    )
+                }
+            }
         }
     }
 }
 
-@OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun CameraViewfinderCard(
+fun CameraPermissionCard(onRequestPermission: () -> Unit) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("camera_permission_card"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.size(32.dp)
+            )
+            Text(
+                text = "Camera Permission Required",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+            Text(
+                text = "Camera access is needed for live river optical level detection and OpenCV analysis.",
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.9f)
+            )
+            Button(
+                onClick = onRequestPermission,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                ),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("Grant Camera Permission", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+fun CameraViewfinderSection(
     adminState: AdminUiState,
+    isPermissionGranted: Boolean,
+    onOpenCamera: () -> Unit,
+    onStopCamera: () -> Unit,
     onCaptureClick: (Bitmap?) -> Unit,
-    onSimulateShiftClick: () -> Unit
+    onRequestPermission: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
     var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
 
     DisposableEffect(adminState.isCameraOpen) {
@@ -323,16 +248,18 @@ fun CameraViewfinderCard(
         }
     }
 
-    Card(
+    ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("camera_viewfinder_card"),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // Header Row with Camera Status Badge
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -343,26 +270,25 @@ fun CameraViewfinderCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Memory,
+                        imageVector = Icons.Default.Videocam,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "OpenCV Optical Detection Engine",
+                        text = "Camera Feed",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                 }
-                
-                // Camera Shutter Open / Closed Badge
-                Badge(
-                    containerColor = if (adminState.isCameraOpen) StatusGreenBg else MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = if (adminState.isCameraOpen) StatusGreenText else MaterialTheme.colorScheme.onSurfaceVariant
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (adminState.isCameraOpen) StatusGreenBg else MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Box(
                             modifier = Modifier
@@ -371,29 +297,30 @@ fun CameraViewfinderCard(
                                 .background(if (adminState.isCameraOpen) StatusGreen else Color.Gray)
                         )
                         Text(
-                            text = if (adminState.isCameraOpen) "CAMERA OPEN" else "CAMERA SLEEPING",
+                            text = if (adminState.isCameraOpen) "CAMERA ACTIVE" else "CAMERA STOPPED",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp
+                            fontSize = 11.sp,
+                            color = if (adminState.isCameraOpen) StatusGreenText else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
 
-            // Viewfinder image display
+            // Viewfinder Container
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(220.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .height(240.dp)
+                    .clip(RoundedCornerShape(16.dp))
                     .background(Color.Black)
                     .border(
                         2.dp,
                         if (adminState.isCameraOpen) StatusGreen else MaterialTheme.colorScheme.outlineVariant,
-                        RoundedCornerShape(12.dp)
+                        RoundedCornerShape(16.dp)
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                if (!cameraPermissionState.status.isGranted) {
+                if (!isPermissionGranted) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
@@ -401,9 +328,9 @@ fun CameraViewfinderCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.CameraAlt,
-                            contentDescription = "Permission Needed",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(40.dp)
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.6f),
+                            modifier = Modifier.size(44.dp)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
@@ -412,32 +339,21 @@ fun CameraViewfinderCard(
                             fontWeight = FontWeight.Bold,
                             style = MaterialTheme.typography.titleSmall
                         )
-                        Text(
-                            text = "Enable camera access to run optical color detection and water height scans.",
-                            color = Color.White.copy(alpha = 0.7f),
-                            style = MaterialTheme.typography.bodySmall,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Button(
-                            onClick = { cameraPermissionState.launchPermissionRequest() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error
-                            ),
+                            onClick = onRequestPermission,
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text("Grant Permission", fontWeight = FontWeight.Bold)
+                            Text("Grant Permission")
                         }
                     }
                 } else if (adminState.isCameraOpen) {
-                    // Show actual live camera feed
                     AndroidView(
                         factory = { ctx ->
                             PreviewView(ctx).apply {
                                 scaleType = PreviewView.ScaleType.FILL_CENTER
                                 previewViewRef = this
-                                
+
                                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                                 cameraProviderFuture.addListener({
                                     try {
@@ -453,7 +369,7 @@ fun CameraViewfinderCard(
                                             preview
                                         )
                                     } catch (exc: Exception) {
-                                        android.util.Log.e("CameraViewfinder", "Use case binding failed", exc)
+                                        android.util.Log.e("AdminCameraViewfinder", "Use case binding failed", exc)
                                     }
                                 }, ContextCompat.getMainExecutor(ctx))
                             }
@@ -461,7 +377,6 @@ fun CameraViewfinderCard(
                         modifier = Modifier.matchParentSize()
                     )
                 } else {
-                    // Show last analyzed image frame with computer vision bounding boxes
                     val processedBitmap = adminState.latestAnalysisResult?.processedBitmap
                     if (processedBitmap != null) {
                         Image(
@@ -470,7 +385,23 @@ fun CameraViewfinderCard(
                             modifier = Modifier.matchParentSize()
                         )
                     } else {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.VideocamOff,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.5f),
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Camera Off • Tap 'Open Camera' to start feed",
+                                color = Color.White.copy(alpha = 0.7f),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                     }
                 }
 
@@ -485,7 +416,7 @@ fun CameraViewfinderCard(
                             CircularProgressIndicator(color = Color.White)
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = adminState.cameraStatusText,
+                                text = "Analyzing Optical Frame...",
                                 color = Color.White,
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold
@@ -495,215 +426,82 @@ fun CameraViewfinderCard(
                 }
             }
 
-            // Status indicator banner
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = if (adminState.isCameraOpen) Icons.Default.CameraAlt else Icons.Default.Schedule,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = if (cameraPermissionState.status.isGranted) adminState.cameraStatusText else "Awaiting Camera Permission...",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-
-            // Interactive Buttons
+            // Camera Manual Triggers (Open Camera, Stop Camera, Capture)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                ElevatedButton(
-                    onClick = {
-                        val bitmap = previewViewRef?.bitmap
-                        onCaptureClick(bitmap)
-                    },
-                    modifier = Modifier
-                        .weight(1.2f)
-                        .testTag("capture_analyze_button"),
-                    enabled = !adminState.isAnalyzing,
-                    colors = ButtonDefaults.elevatedButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CameraAlt,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Instant Capture", fontWeight = FontWeight.Bold)
-                }
-
-                OutlinedButton(
-                    onClick = onSimulateShiftClick,
+                // Open Camera Button
+                Button(
+                    onClick = onOpenCamera,
+                    enabled = !adminState.isCameraOpen && !adminState.isAnalyzing,
                     modifier = Modifier
                         .weight(1f)
-                        .testTag("simulate_shift_button"),
-                    enabled = !adminState.isAnalyzing
+                        .testTag("open_camera_button"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    ),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Autorenew,
+                        imageVector = Icons.Default.PlayArrow,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Cycle LED", fontSize = 12.sp)
+                    Text("Open Camera", fontWeight = FontWeight.Bold)
                 }
-            }
-        }
-    }
-}
 
-@Composable
-fun CameraSchedulerCard(
-    isSchedulerEnabled: Boolean,
-    intervalSeconds: Int,
-    countdownSeconds: Int,
-    onToggleScheduler: (Boolean) -> Unit,
-    onIntervalChange: (Int) -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("camera_scheduler_card"),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                // Stop Camera Button
+                Button(
+                    onClick = onStopCamera,
+                    enabled = adminState.isCameraOpen && !adminState.isAnalyzing,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("stop_camera_button"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    ),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Schedule,
+                        imageVector = Icons.Default.Stop,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
+                        modifier = Modifier.size(18.dp)
                     )
-                    Column {
-                        Text(
-                            text = "Automated Camera Scheduler",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = if (isSchedulerEnabled) "Auto camera open/close every ${intervalSeconds}s" else "Scheduler paused",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Stop Camera", fontWeight = FontWeight.Bold)
                 }
-
-                Switch(
-                    checked = isSchedulerEnabled,
-                    onCheckedChange = onToggleScheduler,
-                    modifier = Modifier.testTag("camera_scheduler_toggle"),
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                        checkedTrackColor = MaterialTheme.colorScheme.primary
-                    )
-                )
             }
 
-            AnimatedVisibility(visible = isSchedulerEnabled) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.padding(top = 4.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Auto Reopen Interval: ${intervalSeconds}s",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "Next camera open in: ${countdownSeconds}s",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    val progress = if (intervalSeconds > 0) {
-                        (intervalSeconds - countdownSeconds).toFloat() / intervalSeconds.toFloat()
-                    } else 0f
-
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp)),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-
-                    // Quick Interval Preset Chips
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf(5 to "5s", 15 to "15s (Optimal)", 30 to "30s", 60 to "60s").forEach { (sec, label) ->
-                            val isSelected = intervalSeconds == sec
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable { onIntervalChange(sec) }
-                            ) {
-                                Text(
-                                    text = label,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-
-                    Slider(
-                        value = intervalSeconds.toFloat(),
-                        onValueChange = { onIntervalChange(it.toInt()) },
-                        valueRange = 5f..60f,
-                        steps = 10,
-                        modifier = Modifier.testTag("scheduler_interval_slider")
-                    )
-                }
+            // Instant Capture & Analyze Button
+            OutlinedButton(
+                onClick = {
+                    val bitmap = previewViewRef?.bitmap
+                    onCaptureClick(bitmap)
+                },
+                enabled = !adminState.isAnalyzing,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("capture_analyze_button"),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Camera,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Capture & Run OpenCV Scan", fontWeight = FontWeight.Bold)
             }
         }
     }
 }
 
 @Composable
-fun RealTimeStatusCard(
-    latestLog: DetectionLog?,
-    lastCaptureTimeText: String,
-    adminState: AdminUiState
+fun RealTimeAnalysisCard(
+    adminState: AdminUiState,
+    latestLog: DetectionLog?
 ) {
     val result = adminState.latestAnalysisResult
     val ledState = result?.detectedState ?: LedState.GREEN
@@ -718,7 +516,7 @@ fun RealTimeStatusCard(
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = 1.22f,
+        targetValue = 1.2f,
         animationSpec = infiniteRepeatable(
             animation = tween(800, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
@@ -726,35 +524,25 @@ fun RealTimeStatusCard(
         label = "ledPulse"
     )
 
-    Card(
+    ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("real_time_status_card"),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
-        colors = CardDefaults.cardColors(
+            .testTag("real_time_analysis_card"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.elevatedCardColors(
             containerColor = MaterialTheme.colorScheme.surface
-        )
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Real-Time Sensor Status",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Updated: $lastCaptureTimeText",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                text = "Last Analysis Result",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
 
             HorizontalDivider()
 
@@ -763,86 +551,50 @@ fun RealTimeStatusCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Animated Glowing LED Bulb
                 Box(
-                    modifier = Modifier.size(64.dp),
+                    modifier = Modifier.size(56.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(54.dp)
+                            .size(48.dp)
                             .scale(if (ledState == LedState.RED || ledState == LedState.YELLOW) pulseScale else 1f)
                             .clip(CircleShape)
                             .background(ledColor.copy(alpha = 0.25f))
                     )
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(32.dp)
                             .clip(CircleShape)
                             .background(ledColor)
-                            .border(3.dp, Color.White, CircleShape)
+                            .border(2.dp, Color.White, CircleShape)
                     )
                 }
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = ledColor.copy(alpha = 0.15f)
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = ledColor.copy(alpha = 0.15f)
-                        ) {
-                            Text(
-                                text = "LED: ${ledState.name}",
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = ledColor,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
                         Text(
-                            text = "${((result?.confidence ?: 0.95f) * 100).toInt()}% Confidence",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "LED: ${ledState.name}",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = ledColor,
+                            fontWeight = FontWeight.Bold
                         )
                     }
 
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
-                        text = "Water Level: ${result?.waterLevelEstimateMeters ?: 1.25}m",
-                        style = MaterialTheme.typography.titleLarge,
+                        text = "Depth: ${result?.waterLevelEstimateMeters ?: "1.25"}m",
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.ExtraBold
                     )
 
                     Text(
-                        text = latestLog?.statusSummary ?: "Normal water flow observed",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            // OpenCV Matrix Diagnostics Detail
-            OutlinedCard(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.outlinedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = "OpenCV HSV Metrics: ${result?.hsvDetails() ?: "H: 124° S: 92% V: 88%"}",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = result?.matrixSummary ?: "OpenCV HSV ROI Matrix [800x600]",
+                        text = latestLog?.statusSummary ?: "Normal water level detected.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -850,196 +602,4 @@ fun RealTimeStatusCard(
             }
         }
     }
-}
-
-private fun OpenCvAnalysisResult.hsvDetails(): String {
-    return "Hue: ${detectedHue.toInt()}° • Sat: ${(detectedSaturation * 100).toInt()}% • Brightness: ${(detectedBrightness * 100).toInt()}% (${colorHex})"
-}
-
-@Composable
-fun DetectionLogItemRow(log: DetectionLog) {
-    val ledState = try {
-        LedState.valueOf(log.ledState)
-    } catch (e: Exception) {
-        LedState.GREEN
-    }
-
-    val ledColor = when (ledState) {
-        LedState.GREEN -> StatusGreen
-        LedState.YELLOW -> StatusYellow
-        LedState.RED -> StatusRed
-        LedState.UNKNOWN -> Color.Gray
-    }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("detection_log_item_${log.id}"),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(16.dp)
-                    .clip(CircleShape)
-                    .background(ledColor)
-            )
-
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "${log.ledState} (${log.waterLevelMeters}m)",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = log.triggerType,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                Text(
-                    text = log.statusSummary,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Text(
-                    text = formatTimestamp(log.timestamp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun BroadcastNotificationCard(
-    onSendBroadcast: (String, String) -> Unit
-) {
-    var title by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf("") }
-    var showSuccessBanner by remember { mutableStateOf(false) }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("broadcast_notification_card"),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.25f)
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Warning,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.secondary
-                )
-                Text(
-                    text = "Broadcast Emergency Alert",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-            }
-
-            Text(
-                text = "Dispatch a real-time custom notification immediately to all community members' devices.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
-            )
-
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                label = { Text("Alert Title") },
-                placeholder = { Text("e.g. 🚨 CRITICAL FLOOD ADVISORY") },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("broadcast_title_input")
-            )
-
-            OutlinedTextField(
-                value = message,
-                onValueChange = { message = it },
-                label = { Text("Alert Message") },
-                placeholder = { Text("e.g. River levels have exceeded threshold. Evacuate Zone A.") },
-                minLines = 2,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("broadcast_message_input")
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
-            ) {
-                Button(
-                    onClick = {
-                        if (title.isNotBlank() && message.isNotBlank()) {
-                            onSendBroadcast(title, message)
-                            title = ""
-                            message = ""
-                            showSuccessBanner = true
-                        }
-                    },
-                    enabled = title.isNotBlank() && message.isNotBlank(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary
-                    ),
-                    modifier = Modifier.testTag("send_broadcast_button")
-                ) {
-                    Text("Broadcast Now", fontWeight = FontWeight.Bold)
-                }
-            }
-
-            AnimatedVisibility(visible = showSuccessBanner) {
-                Surface(
-                    color = com.example.ui.theme.StatusGreenBg,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showSuccessBanner = false }
-                ) {
-                    Text(
-                        text = "✓ Alert broadcasted to all active installations successfully!",
-                        color = com.example.ui.theme.StatusGreenText,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(10.dp),
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-        }
-    }
-}
-
-private fun formatTimestamp(timestamp: Long): String {
-    val sdf = java.text.SimpleDateFormat("MMM dd, yyyy • HH:mm:ss", java.util.Locale.getDefault())
-    return sdf.format(java.util.Date(timestamp))
 }

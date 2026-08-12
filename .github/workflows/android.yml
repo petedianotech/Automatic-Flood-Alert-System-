@@ -40,7 +40,15 @@ jobs:
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
-          echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > app/my-upload-key.jks || echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > app/my-upload-key.jks
+          echo "Decoding release keystore..."
+          if echo "$RELEASE_KEYSTORE_BASE64" | tr -d '\r\n\t ' | base64 -d > app/my-upload-key.jks 2>/dev/null || \
+             echo "$RELEASE_KEYSTORE_BASE64" | tr -d '\r\n\t ' | base64 --decode > app/my-upload-key.jks 2>/dev/null || \
+             python3 -c "import base64, os; open('app/my-upload-key.jks', 'wb').write(base64.b64decode(os.environ['RELEASE_KEYSTORE_BASE64'].strip()))" 2>/dev/null; then
+            echo "Successfully decoded release keystore."
+          else
+            echo "WARNING: RELEASE_KEYSTORE_BASE64 secret contains invalid base64 characters. Skipping release key file..."
+            rm -f app/my-upload-key.jks
+          fi
 
       - name: Compile and Build Signed APK
         env:
@@ -50,11 +58,11 @@ jobs:
           KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
-          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
-            echo "Release key configured. Compiling Release Signed APK..."
+          if [ -f "app/my-upload-key.jks" ]; then
+            echo "Release key configured and valid. Compiling Release Signed APK..."
             gradle :app:assembleRelease --stacktrace --no-daemon
           else
-            echo "No Release key configured. Compiling Debug Signed APK..."
+            echo "No valid Release key found. Compiling Debug Signed APK..."
             gradle :app:assembleDebug --stacktrace --no-daemon
           fi
 

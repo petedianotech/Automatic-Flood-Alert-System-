@@ -117,6 +117,24 @@ class WaterMonitorViewModel(application: Application) : AndroidViewModel(applica
         toggleCameraScheduler(true)
     }
 
+    fun openCamera() {
+        _adminState.update {
+            it.copy(
+                isCameraOpen = true,
+                cameraStatusText = "Camera Open • Live Optical Feed Active"
+            )
+        }
+    }
+
+    fun stopCamera() {
+        _adminState.update {
+            it.copy(
+                isCameraOpen = false,
+                cameraStatusText = "Camera Closed • Standby Mode"
+            )
+        }
+    }
+
     fun toggleCameraScheduler(enabled: Boolean) {
         _adminState.update {
             it.copy(
